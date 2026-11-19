@@ -317,6 +317,10 @@ test('la recicladora se dibuja con tres mallas, sin luces, y cabe en el portón 
   assert.ok(aviso.position.y <= 0.12 + 2.25 + 1e-6, 'más arriba tapa el letrero del local del fondo');
 });
 
+
+
+
+
 test('al quitar la recicladora se libera todo lo que creó', () => {
   const { scene, puesto } = armar(SellPoint);
   assert.equal(sinLiberar(puesto, scene), 0);

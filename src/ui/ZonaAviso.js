@@ -54,8 +54,10 @@ export class ZonaAviso {
       if (this._restante <= 0) this.cartelEl.hidden = true;
     }
     const zona = zonaDe(district, x, z);
-    if (zona !== this._zona) {
+    const cambio = zona !== this._zona || district !== this._distrito;
+    if (cambio) {
       this._zona = zona;
+      this._distrito = district;
       const nombre = ZONA_NOMBRES[zona];
       if (nombre) {
         this.cartelEl.textContent = nombre;
@@ -66,7 +68,7 @@ export class ZonaAviso {
       }
     }
     this._calleEspera -= dt;
-    if (this._calleEspera > 0) return;
+    if (this._calleEspera > 0) return cambio;
     this._calleEspera = CALLE_CADA_S;
     // El mismo predicado que usa el juego para nombrar la vía donde murió o lo arrestaron.
     const esCalzada = district?.tileTypeAt
@@ -77,5 +79,6 @@ export class ZonaAviso {
       this._calle = calle;
       this.calleEl.textContent = calle;
     }
+    return cambio;
   }
 }

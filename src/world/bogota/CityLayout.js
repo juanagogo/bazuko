@@ -1,12 +1,13 @@
+import { TILE_SIZE } from '../../utils/constants.js';
 import { paintSmallBuilding } from './SmallBuilding.js';
 import { CARRERAS, CALLES, CARACAS, STREET_X, STREET_Z, SIDEWALK_TILES } from './StreetLayout.js';
-import { paintLakePark } from './LakePark.js';
+import { LAKE_PARK, paintLakePark } from './LakePark.js';
 import { paintGasStation } from './GasStation.js';
 import { paintD69Store } from './D69Store.js';
 import { paintColpatria } from './Colpatria.js';
 import { paintViaductClearance, paintViaductGardens } from './ColpatriaViaduct.js';
 import { paintTerminalEntrance } from './TransitTerminal.js';
-import { BASE_CITY_WIDTH, CARRERA_5, EAST_CITY_WIDTH, paintEastCity } from './EastZones.js';
+import { BASE_CITY_WIDTH, CARRERA_5, EAST_CITY_WIDTH, TEUSAQUILLO_PARK, paintEastCity } from './EastZones.js';
 
 export const ORIGINAL_CITY_WIDTH = STREET_X.size;
 export const ORIGINAL_CITY_HEIGHT = STREET_Z.size;
@@ -21,6 +22,38 @@ export const EXTENSION_PARKS = [
   { x0: 92, x1: 103, z0: 21, z1: 34, name: 'Parque de la Estación' },
   { x0: 69, x1: 81, z0: 80, z1: 91, name: 'Parque del Sur' }
 ];
+
+const [parkMinX, parkMaxX] = STREET_X.band([29, 38]);
+const [parkMinZ, parkMaxZ] = STREET_Z.band([33, 45]);
+const PARK_BOUNDS = [
+  { x0: parkMinX, x1: parkMaxX, z0: parkMinZ, z1: parkMaxZ },
+  ...EXTENSION_PARKS, TEUSAQUILLO_PARK
+];
+
+/** Límites compartidos por el pavimento de los paseos y el coste de caminar sobre su césped. */
+export function inUrbanPark(x, z) {
+  return (z >= LAKE_PARK.z0 / TILE_SIZE && z <= LAKE_PARK.z1 / TILE_SIZE && x >= 1 && x < CARRERA_5[0]) ||
+    PARK_BOUNDS.some(park => x >= park.x0 && x <= park.x1 && z >= park.z0 && z <= park.z1);
+}
+
+// Cada pila tiene una bahía de dos baldosas al norte del paseo transversal.
+// La llave mira hacia el andén; queda una baldosa libre para acercarse de lado.
+export const PARK_WASH_BAYS = [
+  { tx: STREET_X.tile(30), tz: STREET_Z.tile(38) },
+  ...EXTENSION_PARKS.map(park => ({
+    tx: Math.floor((park.x0 + park.x1) / 2) + 3,
+    tz: Math.floor((park.z0 + park.z1) / 2) - 1
+  }))
+];
+
+// Las bancas flanquean el sendero. La misma posición abre su ensanche en el plano.
+export function parkBenchBays(park) {
+  const midZ = Math.floor((park.z0 + park.z1) / 2);
+  return [
+    { x: park.x0 + 2, z: midZ - 1, rotation: 0 },
+    { x: park.x1 - 2, z: midZ + 1, rotation: Math.PI }
+  ];
+}
 
 /** Añade barrios al oriente y al sur sin desplazar el centro existente. */
 export function expandCity(center) {
@@ -57,10 +90,15 @@ function expandBaseCity(center) {
   }
   for (const park of EXTENSION_PARKS) {
     const pathX=Math.floor((park.x0+park.x1)/2), pathZ=Math.floor((park.z0+park.z1)/2);
+    const bays = parkBenchBays(park);
     for(let z=park.z0;z<=park.z1;z++) for(let x=park.x0;x<=park.x1;x++) {
       if (map[z][x] !== 'building') continue;
-      map[z][x]=x === pathX || z === pathZ ? 'plaza' : 'grass';
+      const byBench = bays.some(bay => z === bay.z && Math.abs(x - bay.x) <= 1);
+      map[z][x] = x === pathX || z === pathZ || byBench ? 'plaza' : 'grass';
     }
+  }
+  for (const { tx, tz } of PARK_WASH_BAYS) {
+    for (const x of [tx, tx + 1]) if (map[tz][x] === 'grass') map[tz][x] = 'plaza';
   }
   paintLakePark(map);
   paintGasStation(map);

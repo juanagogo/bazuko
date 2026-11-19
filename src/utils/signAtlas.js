@@ -23,7 +23,7 @@ export function signTextAtlas(entries, { w = 768, h = 192, columns = 4, pad = 8,
   c.width = cw * columns;
   c.height = ch * rows;
   const x = c.getContext('2d');
-  const cells = entries.map(({ title, sub = '', fg = '#ffffff' }, index) => {
+  const cells = entries.map(({ title, sub = '', fg = '#ffffff', accent = '#f6c400' }, index) => {
     if (index >= capacity) return null;
     const ox = (index % columns) * cw + padX, oy = Math.floor(index / columns) * ch + pad;
     x.save();
@@ -37,7 +37,7 @@ export function signTextAtlas(entries, { w = 768, h = 192, columns = 4, pad = 8,
     x.font = `900 ${Math.round(h * (sub ? 0.36 : 0.5))}px system-ui, sans-serif`;
     x.fillText(title, w / 2, sub ? h * 0.42 : h * 0.54, w * 0.9);
     if (sub) {
-      x.fillStyle = '#f6c400';
+      x.fillStyle = accent;
       x.font = `800 ${Math.round(h * 0.15)}px system-ui, sans-serif`;
       x.fillText(sub, w / 2, h * 0.76, w * 0.88);
     }

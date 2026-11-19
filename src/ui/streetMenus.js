@@ -117,7 +117,8 @@ export function openHogar(game) {
         el('li', { text: `Comida caliente: +${HOGAR.hambre} de hambre y de sed` }),
         el('li', { text: 'Nadie me roba mientras duermo' }),
         el('li', { text: `Adentro no se consume: el vicio baja ${HOGAR.vicio}` })));
-    const motivo = !abierto ? 'Cerrado a esta hora' : !cupo ? 'Sin cupo esta noche' : null;
+    // Con la tomba encima no se entra a dormir (ver Game.sleep y StreetLife.hogarBlocked).
+    const motivo = game.traffic?.inPursuit ? 'Con la tomba encima no puedo dormir' : !abierto ? 'Cerrado a esta hora' : !cupo ? 'Sin cupo esta noche' : null;
     const foot = [
       el('span', { class: 'menu__money', text: motivo ?? `Salgo a las ${hora(6)}, bañado.` }),
       button(motivo ? motivo : `Entrar y dormir hasta las ${hora(6)}`, {

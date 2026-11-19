@@ -1,8 +1,13 @@
 import * as THREE from 'three';
 import { MeshKit, rgb, shade, canvasTexture, drawLedText } from './MeshKit.js';
-import { BUS_DOOR_Z, BUS_DOOR_WIDTH, busWipers } from './BusBody.js';
+import { BUS_DOOR_Z, BUS_DOOR_WIDTH, LED_ROUTES, busWipers } from './BusBody.js';
+import { bridgeCenter, COLPATRIA } from './Colpatria.js';
+import { LAKE_PARK } from './LakePark.js';
+import { CALLES } from './StreetLayout.js';
+import { TILE_SIZE } from '../../utils/constants.js';
 import { createUrbanTree } from './UrbanTrees.js';
 import { chainSunField, fadeGlowInFog } from './SunFieldShader.js';
+import { sinGastarAzar } from './concretoViaducto.js';
 
 export const TERMINAL = Object.freeze({ x: 75, z: -30, width: 4, length: 40,
   x0: 54, x1: 96, z0: -74, z1: 0, platformY: .92, northLane: 78.5, southLane: 71.5 });
@@ -87,7 +92,7 @@ export const platformDoorZ = {
 };
 
 const C = {
-  steel: rgb('#4b5155'), steelDark: rgb('#2a2e31'), steelLight: rgb('#7b8186'), red: rgb('#a8141c'), yellow: rgb('#e9b714'),
+  steel: rgb('#4b5155'), steelDark: rgb('#2a2e31'), steelLight: rgb('#7b8186'), red: rgb('#8a2a26'), yellow: rgb('#e9b714'),
   concrete: rgb('#a9a89f'), concreteDark: rgb('#7f7e76'), curb: rgb('#c4c3b9'), kerbPaint: rgb('#d8b62c'), white: rgb('#e8e8e2'), black: rgb('#121315'),
   ceiling: rgb('#d6d6cf'), ceilingSeam: rgb('#8a8b86'), glass: rgb('#1d2c30'), wood: rgb('#5b4530'), green: rgb('#3f5a2a'), paint: rgb('#e8e7dc')
 };
@@ -104,9 +109,154 @@ function terminalTextures() {
     roofNormal: roofNormalMap(),
     signs: canvasTexture(1024, 1024, drawSigns, { anisotropy: 8 }),
     legends: canvasTexture(512, 512, drawLegends, { anisotropy: 8 }),
-    pool: canvasTexture(64, 64, drawPool, { anisotropy: 1 })
+    pool: canvasTexture(64, 64, drawPool, { anisotropy: 1 }),
+    finishes: sinGastarAzar(2611, () => canvasTexture(FIN, FIN, drawFinishes, { anisotropy: 8 }))
   };
   return shared;
+}
+
+// Hoja de acabados: cielo raso, rojo gastado y columnas. Lo que no la usa cae en el blanco de la esquina (UV 0,0).
+const FIN = 1024;
+const FINISH = {
+  ceiling: k => [(k % 4) * 256, Math.floor(k / 4) * 176, 256, 176],
+  frieze: [[0, 352, 1024, 128], [0, 480, 1024, 128]],
+  white: [0, 608, 192, 416], jamb: [192, 608, 256, 416], column: [448, 608, 256, 416]
+};
+/** UV dentro de un rectángulo de la hoja: s de izquierda a derecha, t de abajo arriba, con margen contra el filtrado. */
+const finishUv = ([x, y, w, h], s, t, pad = 3) => [(x + pad + s * (w - 2 * pad)) / FIN, 1 - (y + pad + (1 - t) * (h - 2 * pad)) / FIN];
+const RED_PAINT = '#8a2a26';
+
+function blot(ctx, x, y, rx, ry, rgbText, alpha) {
+  const r = Math.max(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, `rgba(${rgbText},${alpha})`); g.addColorStop(.6, `rgba(${rgbText},${alpha * .5})`); g.addColorStop(1, `rgba(${rgbText},0)`);
+  ctx.save(); ctx.translate(x, y); ctx.scale(rx / r, ry / r);
+  ctx.fillStyle = g; ctx.fillRect(-r, -r, r * 2, r * 2);
+  ctx.restore();
+}
+
+function speckle(ctx, [x, y, w, h], random, count, light, dark, size = 1.6, darkShare = .5) {
+  for (let i = 0; i < count; i++) {
+    ctx.fillStyle = random() >= darkShare ? `rgba(255,250,240,${light * random()})` : `rgba(20,16,14,${dark * random()})`;
+    ctx.fillRect(x + random() * w, y + random() * h, .6 + random() * size, .6 + random() * size);
+  }
+}
+
+function drawCeilingPanel(ctx, area, k, random) {
+  const [x, y, w, h] = area;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = '#f2f0e8'; ctx.fillRect(x, y, w, h);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
+    ctx.fillStyle = random() < .5 ? `rgba(120,110,92,${.03 + random() * .07})` : `rgba(255,255,248,${random() * .05})`;
+    ctx.fillRect(x + i * w / 3, y + j * h / 2, w / 3, h / 2);
+  }
+  speckle(ctx, area, random, 1400, .16, .07, .9, .3);
+  for (const [a, b] of [[x, x + w * .26], [x + w, x + w * .74]]) {
+    const g = ctx.createLinearGradient(a, 0, b, 0);
+    g.addColorStop(0, `rgba(74,68,58,${.2 + random() * .12})`); g.addColorStop(1, 'rgba(74,68,58,0)');
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  }
+  for (let i = 0; i < 5; i++) blot(ctx, x + random() * w, y + random() * h, 20 + random() * 40, 14 + random() * 26, '96,90,78', .05 + random() * .07);
+  const stains = [1, 0, 2, 0, 1, 3, 0, 1][k];
+  for (let s = 0; s < stains; s++) {
+    const cx = x + (.12 + random() * .76) * w, cy = y + (.15 + random() * .7) * h, r = 16 + random() * 30;
+    for (let i = 0; i < 4; i++) {
+      const ox = cx + (random() - .5) * r * .7, oy = cy + (random() - .5) * r * .5, rr = r * (.5 + random() * .5), squash = .65 + random() * .35;
+      ctx.save(); ctx.translate(ox, oy); ctx.rotate(random() * Math.PI); ctx.scale(1, squash);
+      const g = ctx.createRadialGradient(0, 0, rr * .15, 0, 0, rr);
+      g.addColorStop(0, 'rgba(150,116,66,.1)'); g.addColorStop(.78, 'rgba(146,108,60,.17)'); g.addColorStop(.9, 'rgba(104,74,40,.32)'); g.addColorStop(1, 'rgba(104,74,40,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+  ctx.fillStyle = 'rgba(58,54,48,.42)';
+  for (let i = 1; i < 3; i++) ctx.fillRect(x + i * w / 3 - 2, y, 3, h);
+  ctx.fillRect(x, y + h / 2 - 2, w, 3);
+  ctx.fillStyle = 'rgba(255,255,250,.4)';
+  for (let i = 1; i < 3; i++) ctx.fillRect(x + i * w / 3 + 1, y, 1, h);
+  ctx.fillRect(x, y + h / 2 + 1, w, 1);
+  ctx.strokeStyle = 'rgba(64,58,50,.32)'; ctx.lineWidth = 4; ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+  ctx.restore();
+}
+
+function drawRedPaint(ctx, area, random, { streaks = 40, chips = 14, chipBand = [0, 1], streakAlpha = .22 } = {}) {
+  const [x, y, w, h] = area;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = RED_PAINT; ctx.fillRect(x, y, w, h);
+  for (let i = 0; i < 30; i++) {
+    const light = random() < .55;
+    blot(ctx, x + random() * w, y + random() * h, 30 + random() * 90, 20 + random() * 60, light ? '170,92,78' : '52,16,14', (light ? .1 : .14) + random() * .14);
+  }
+  speckle(ctx, area, random, Math.round(w * h / 60), .08, .14, 1.8);
+  for (let i = 0; i < streaks; i++) {
+    const sx = x + random() * w, length = h * (.2 + random() * .8), width = 2 + random() * 7;
+    const g = ctx.createLinearGradient(0, y, 0, y + length);
+    g.addColorStop(0, `rgba(34,18,14,${streakAlpha + random() * streakAlpha})`); g.addColorStop(1, 'rgba(34,18,14,0)');
+    ctx.fillStyle = g; ctx.fillRect(sx, y, width, length);
+  }
+  const dust = ctx.createLinearGradient(0, y, 0, y + h * .18);
+  dust.addColorStop(0, 'rgba(70,60,52,.4)'); dust.addColorStop(1, 'rgba(70,60,52,0)');
+  ctx.fillStyle = dust; ctx.fillRect(x, y, w, h * .18);
+  for (let i = 0; i < chips; i++) {
+    const cx = x + random() * w, cy = y + h * (1 - chipBand[0] - random() * (chipBand[1] - chipBand[0]));
+    const rx = 2 + random() * 7, ry = 1.5 + random() * 4;
+    ctx.fillStyle = 'rgba(30,14,12,.5)'; ctx.beginPath(); ctx.ellipse(cx + .8, cy + .8, rx + 1.2, ry + 1.2, random() * Math.PI, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = random() < .6 ? '#8f8a82' : '#6e6a64'; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, random() * Math.PI, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(150,120,110,${.25 + random() * .25})`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + (random() - .5) * 60, cy + (random() - .5) * 12); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawColumn(ctx, area, random) {
+  const [x, y, w, h] = area, at = t => y + h * (1 - t);
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = '#f1f0ec'; ctx.fillRect(x, y, w, h);
+  speckle(ctx, area, random, 900, .1, .12);
+  const plinth = ctx.createLinearGradient(0, at(0), 0, at(.16));
+  plinth.addColorStop(0, 'rgba(58,50,40,.62)'); plinth.addColorStop(.45, 'rgba(70,62,50,.38)'); plinth.addColorStop(1, 'rgba(70,62,50,0)');
+  ctx.fillStyle = plinth; ctx.fillRect(x, at(.16), w, at(0) - at(.16));
+  for (let i = 0; i < 40; i++) blot(ctx, x + random() * w, at(random() * .1), 4 + random() * 12, 3 + random() * 8, '44,38,30', .12 + random() * .25);
+  for (let i = 0; i < 14; i++) {
+    ctx.strokeStyle = `rgba(24,22,20,${.25 + random() * .3})`; ctx.lineWidth = 1 + random() * 2;
+    const sx = x + random() * w, sy = at(.02 + random() * .12);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + 8 + random() * 26, sy + (random() - .5) * 6); ctx.stroke();
+  }
+  for (let i = 0; i < 9; i++) blot(ctx, x + random() * w, at(.38 + random() * .26), 8 + random() * 14, 10 + random() * 18, '92,84,72', .08 + random() * .1);
+  const top = ctx.createLinearGradient(0, y, 0, at(.85));
+  top.addColorStop(0, 'rgba(90,84,74,.22)'); top.addColorStop(1, 'rgba(90,84,74,0)');
+  ctx.fillStyle = top; ctx.fillRect(x, y, w, at(.85) - y);
+  ctx.restore();
+}
+
+function drawFinishes(ctx) {
+  const random = seeded(4417);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, FIN, FIN);
+  for (let k = 0; k < 8; k++) drawCeilingPanel(ctx, FINISH.ceiling(k), k, random);
+  for (const area of FINISH.frieze) drawRedPaint(ctx, area, random, { streaks: 16, chips: 0, streakAlpha: .16 });
+  drawRedPaint(ctx, FINISH.jamb, random, { streaks: 26, chips: 34, chipBand: [.38, .8] });
+  {
+    const [x, y, w, h] = FINISH.jamb, kick = ctx.createLinearGradient(0, y + h, 0, y + h * .9);
+    kick.addColorStop(0, 'rgba(26,20,16,.6)'); kick.addColorStop(1, 'rgba(26,20,16,0)');
+    ctx.fillStyle = kick; ctx.fillRect(x, y + h * .9, w, h * .1);
+    for (let i = 0; i < 10; i++) blot(ctx, x + random() * w, y + h * (.42 + random() * .2), 8 + random() * 12, 10 + random() * 16, '30,18,14', .1 + random() * .12);
+  }
+  drawColumn(ctx, FINISH.column, random);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(...FINISH.white);
+}
+
+/** UV de una caja vertical (hx, hz: medio ancho) sobre una tira de la hoja que mide `slice` metros de ancho:
+ *  cada cara toma su tajada sin partirse y la altura va de y0 a y1. */
+function stripUv(area, cx, cz, hx, hz, y0, y1, slice, seed) {
+  const frac = v => v - Math.floor(v), clamp = v => Math.min(1, Math.max(0, v));
+  return (p, n) => {
+    if (Math.abs(n[1]) > .5) return finishUv(area, .5, .99);
+    const alongZ = Math.abs(n[0]) > .5, width = alongZ ? 2 * hz : 2 * hx;
+    const local = alongZ ? p[2] - cz + hz : p[0] - cx + hx;
+    const face = alongZ ? (n[0] > 0 ? 0 : 1) : (n[2] > 0 ? 2 : 3);
+    const start = Math.max(0, 1 - width / slice) * frac(seed * .618 + face * .29);
+    return finishUv(area, clamp(start + local / slice), clamp((p[1] - y0) / (y1 - y0)));
+  };
 }
 
 function seeded(seed) {
@@ -153,6 +303,37 @@ function drawFloor(ctx, w, h) {
     }
     ctx.fillStyle = 'rgba(70,50,0,.25)';
     for (let k = 0; k < 9; k++) ctx.fillRect(x0 * pxX, k * tile * pxZ, strip * pxX, 2);
+    for (let i = 0; i < 26; i++) {
+      const sx = (x0 + random() * strip) * pxX, sy = random() * h, r = 8 + random() * 22;
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+      g.addColorStop(0, `rgba(104,96,78,${.22 + random() * .26})`); g.addColorStop(1, 'rgba(104,96,78,0)');
+      ctx.save(); ctx.translate(sx, sy); ctx.scale(1, .6); ctx.translate(-sx, -sy);
+      ctx.fillStyle = g; ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+      ctx.restore();
+    }
+    const edge = ctx.createLinearGradient(x0 * pxX, 0, (x0 + strip) * pxX, 0);
+    edge.addColorStop(0, 'rgba(60,52,36,.3)'); edge.addColorStop(.18, 'rgba(60,52,36,0)'); edge.addColorStop(.82, 'rgba(60,52,36,0)'); edge.addColorStop(1, 'rgba(60,52,36,.3)');
+    ctx.fillStyle = edge; ctx.fillRect(x0 * pxX, 0, strip * pxX, h);
+  }
+  for (const [a, b, k] of [[.18, .84, .2], [1.35, 2.65, .14], [3.16, 3.82, .2]]) {
+    const g = ctx.createLinearGradient(a * pxX, 0, b * pxX, 0);
+    g.addColorStop(0, 'rgba(46,42,36,0)'); g.addColorStop(.5, `rgba(46,42,36,${k})`); g.addColorStop(1, 'rgba(46,42,36,0)');
+    ctx.fillStyle = g; ctx.fillRect(a * pxX, 0, (b - a) * pxX, h);
+    ctx.fillStyle = 'rgba(34,30,26,.32)';
+    for (let i = Math.ceil(a / tile); i * tile < b; i++) ctx.fillRect(i * tile * pxX - 2, 0, 4, h);
+    for (let j = 0; j < 9; j++) ctx.fillRect(a * pxX, j * tile * pxZ - 2, (b - a) * pxX, 4);
+    ctx.strokeStyle = 'rgba(28,26,24,.16)'; ctx.lineWidth = 1.5;
+    for (let i = 0; i < 30; i++) {
+      const sx = (a + random() * (b - a)) * pxX, sy = random() * h;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(sx + (random() - .5) * 30, sy + 10 + random() * 20, sx + (random() - .5) * 40, sy + 24 + random() * 40); ctx.stroke();
+    }
+  }
+  const aspect = pxZ / pxX;
+  for (let i = 0; i < 170; i++) {
+    const nearDoor = random() < .55, x = nearDoor ? (random() < .5 ? .2 + random() * .9 : 2.9 + random() * .9) : .2 + random() * 3.6;
+    const cx = x * pxX, cy = random() * h, r = 2 + random() * 3.6, old = random() < .4;
+    ctx.fillStyle = old ? `rgba(128,126,118,${.5 + random() * .3})` : `rgba(22,21,20,${.55 + random() * .3})`;
+    ctx.beginPath(); ctx.ellipse(cx, cy, r, r * aspect * (.8 + random() * .4), random() * Math.PI, 0, Math.PI * 2); ctx.fill();
   }
   // Cinta de concreto bajo el muro de vidrio.
   ctx.fillStyle = '#6f6e68';
@@ -246,7 +427,8 @@ function roofNormalMap() {
 }
 
 const SIGN = {
-  portal: [0, 0, 1024, 200], rail: [0, 200, 1024, 110], map: [0, 310, 420, 420], board: [430, 310, 594, 190],
+  portal: [0, 0, 1024, 200], rail: [0, 200, 1024, 110], map: [0, 310, 420, 420],
+  boardFromSouth: [430, 310, 594, 94], boardFromNorth: [430, 406, 594, 94],
   wagon1: [430, 510, 290, 92], wagon2: [730, 510, 290, 92], wagon3: [430, 610, 290, 92], wagon4: [730, 610, 290, 92],
   ticket: [0, 740, 512, 96], line: [512, 712, 512, 72], ad: [0, 850, 400, 170], ad2: [420, 850, 400, 170]
 };
@@ -271,42 +453,59 @@ function drawSigns(ctx) {
   };
   ctx.fillStyle = '#17181a'; ctx.fillRect(0, 0, 1024, 1024);
   redBox(SIGN.portal, 'PORTAL DEL CENTRO', 'TRANSMILENIO · ACCESO PEATONAL');
-  redBox(SIGN.rail, 'NORTE  ←  ·  →  SUR', 'ANDENES A AMBOS LADOS');
+  redBox(SIGN.rail, 'B12 · TRONCAL CARACAS', 'COSTADO ORIENTAL: NORTE   /   OCCIDENTAL: SUR');
 
-  // Mapa de rutas genérico: líneas de colores y paradas del propio recorrido, sin marcas.
+  // Plano del corredor, con el norte arriba y los hitos a la altura que tienen en la ciudad.
   {
     const [x, y, w, h] = SIGN.map;
-    ctx.fillStyle = '#f2f1ea'; ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#ad1620'; ctx.fillRect(x, y, w, 40);
-    ctx.fillStyle = '#fff'; ctx.font = '800 26px "Arial Narrow", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText('MAPA DE RUTAS', x + 12, y + 21);
-    const lines = [['#c22027', [[60, 70], [60, 180], [200, 240], [200, 395]]], ['#1f6fb4', [[60, 70], [150, 120], [340, 120], [340, 250]]], ['#2f9a55', [[110, 395], [110, 280], [200, 240], [360, 240]]], ['#e0a415', [[40, 300], [160, 300], [280, 180], [380, 180]]]];
-    ctx.lineJoin = 'round';
-    for (const [color, points] of lines) {
-      ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.beginPath();
-      points.forEach(([px, py], i) => i ? ctx.lineTo(x + px, y + py) : ctx.moveTo(x + px, y + py));
-      ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#222'; ctx.lineWidth = 2.5;
-      points.forEach(([px, py]) => { ctx.beginPath(); ctx.arc(x + px, y + py, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = '#f5f0df'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#9d252c'; ctx.fillRect(0, 0, w, 52);
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillStyle = '#f4c854'; ctx.fillRect(12, 10, 66, 32);
+    ctx.fillStyle = '#2b2925'; ctx.font = 'bold 25px Arial'; ctx.fillText('B12', 21, 27);
+    ctx.fillStyle = '#fff8e8'; ctx.font = 'bold 24px Arial'; ctx.fillText('Troncal Caracas', 92, 27);
+    const py = z => 97 + (z - TERMINAL.z) * (h - 149) / (LAKE_PARK.lakeZ - TERMINAL.z);
+    const px = wx => 88 + (wx - TERMINAL.x) * 1.45;
+    ctx.fillStyle = '#cfddbe'; ctx.fillRect(16, py(LAKE_PARK.z0), w - 32, h - py(LAKE_PARK.z0) - 16);
+    ctx.fillStyle = '#91b6b0'; ctx.beginPath(); ctx.ellipse(px(LAKE_PARK.lakeX), py(LAKE_PARK.lakeZ), 43, 14, 0, 0, Math.PI * 2); ctx.fill();
+    for (const [a, b, name] of CALLES) {
+      const row = py((a + b) * TILE_SIZE / 2);
+      ctx.fillStyle = '#d6cbb9'; ctx.fillRect(16, row - 3, w - 32, 6);
+      ctx.fillStyle = '#4e4a43'; ctx.font = '18px Arial'; ctx.fillText(name, 208, row - 16);
     }
-    ctx.fillStyle = '#232323'; ctx.font = '600 15px Arial, sans-serif';
-    for (const [label, px, py] of [['Portal del Centro', 74, 66], ['Av. Caracas', 214, 236], ['Calle 10', 352, 112], ['Parque del Lago', 214, 392], ['Calle 9', 124, 280]]) ctx.fillText(label, x + px, y + py - 12, 170);
+    ctx.strokeStyle = '#a62b31'; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
+    ctx.moveTo(px(TERMINAL.x), py(TERMINAL.z));
+    for (let z = TERMINAL.z; z <= LAKE_PARK.lakeZ; z += 2) ctx.lineTo(px(bridgeCenter(z)), py(z));
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(px(TERMINAL.x), py(TERMINAL.z), 9, 0, Math.PI * 2);
+    ctx.fillStyle = '#f7f0df'; ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
+    ctx.fillStyle = '#884247'; ctx.font = 'bold 14px Arial'; ctx.fillText('USTED ESTÁ AQUÍ', 116, 78);
+    ctx.fillStyle = '#232b2b'; ctx.font = 'bold 22px Arial'; ctx.fillText('Portal del Centro', 116, 101);
+    ctx.fillRect(px(COLPATRIA.x) - 3, py(COLPATRIA.z) - 9, 6, 15);
+    ctx.font = 'bold 18px Arial'; ctx.textAlign = 'right'; ctx.fillText('Colpatria', px(COLPATRIA.x) - 9, py(COLPATRIA.z), 81);
+    ctx.textAlign = 'left'; ctx.fillText(LAKE_PARK.name, 155, py(LAKE_PARK.lakeZ));
+    ctx.restore();
   }
 
-  // Tablero de próximos buses, en matriz de puntos.
-  {
-    const [x, y, w, h] = SIGN.board;
-    ctx.fillStyle = '#070605'; ctx.fillRect(x, y, w, h);
-    ctx.save(); ctx.translate(x + 6, y + 8);
-    drawLedText(ctx, 'PROXIMOS BUSES', 2, 0, { cellW: 3, cellH: 3, scale: 2, color: '#ff4a2a' });
-    ctx.restore();
-    ctx.save(); ctx.translate(x + 6, y + 62);
-    drawLedText(ctx, 'B12 PORTAL CENTRO 2 MIN', 1, 0, { cellW: 3.4, cellH: 3.4, color: '#ffae18' });
-    drawLedText(ctx, 'B12 PARQUE DEL LAGO 4 MIN', 1, 10, { cellW: 3.4, cellH: 3.4, color: '#ffae18' });
-    drawLedText(ctx, 'H27 CALLE 9 EXPRESO 7 MIN', 1, 20, { cellW: 3.4, cellH: 3.4, color: '#ffae18' });
+  // Oriente sirve al norte. Desde el otro acceso su andén queda a la izquierda.
+  for (const [[x, y, w, h], east] of [[SIGN.boardFromSouth, 1], [SIGN.boardFromNorth, -1]]) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = '#070605'; ctx.fillRect(0, 0, w, h);
+    drawLedText(ctx, 'DESTINOS B12', 16, 2, { cellW: 3.95, cellH: 2.4, color: '#ff7853' });
+    const rowStyle = { cellW: 3.95, cellH: 2.6, color: '#ffc04d' };
+    ctx.strokeStyle = rowStyle.color; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const [label, row, direction] of [[LED_ROUTES.north[0], 14, east], [LED_ROUTES.south[0], 26, -east]]) {
+      drawLedText(ctx, label, 16, row, rowStyle);
+      const ax = direction > 0 ? w - 29 : 29, ay = (row + 3.5) * rowStyle.cellH;
+      ctx.beginPath();
+      ctx.moveTo(ax - direction * 13, ay); ctx.lineTo(ax + direction * 13, ay);
+      ctx.moveTo(ax + direction * 5, ay - 6); ctx.lineTo(ax + direction * 13, ay); ctx.lineTo(ax + direction * 5, ay + 6);
+      ctx.stroke();
+    }
     ctx.restore();
   }
-  [[SIGN.wagon1, 'VAGÓN 1'], [SIGN.wagon2, 'VAGÓN 2'], [SIGN.wagon3, 'VAGÓN 3'], [SIGN.wagon4, 'VAGÓN 4']].forEach(([box, label]) => redBox(box, label, 'B12 · H27'));
+  [[SIGN.wagon1, 'VAGÓN 1'], [SIGN.wagon2, 'VAGÓN 2'], [SIGN.wagon3, 'VAGÓN 3'], [SIGN.wagon4, 'VAGÓN 4']].forEach(([box, label]) => redBox(box, label, LED_ROUTES.north[1]));
   redBox(SIGN.ticket, 'TAQUILLA · RECARGAS');
   {
     const [x, y, w, h] = SIGN.line;
@@ -414,19 +613,20 @@ function createMaterials(lampTone) {
     material.customProgramCacheKey = () => 'estación-emisivo-vértice';
     return chainSunField(material);
   };
-  const ceiling = bounce(new THREE.MeshStandardMaterial({ name: 'cielo raso', vertexColors: true, emissive: CEILING_DAY, emissiveIntensity: DAY_CEILING_GLOW, roughness: .75 }));
+  const finish = { map: textures.finishes, emissiveMap: textures.finishes };
+  const ceiling = bounce(new THREE.MeshStandardMaterial({ name: 'cielo raso', vertexColors: true, ...finish, emissive: CEILING_DAY, emissiveIntensity: DAY_CEILING_GLOW, roughness: .75 }));
   return {
     floor: new THREE.MeshStandardMaterial({ name: 'baldosa', map: textures.floor, emissiveMap: textures.floor, emissive: '#fff0d8', emissiveIntensity: .07, roughness: .42 }),
     concrete: new THREE.MeshStandardMaterial({ name: 'concreto', vertexColors: true, map: textures.grit, roughness: .88 }),
     slab: new THREE.MeshStandardMaterial({ name: 'losa troncal', map: textures.slab, roughness: .86 }),
-    steel: new THREE.MeshStandardMaterial({ name: 'acero', vertexColors: true, roughness: .46, metalness: .22 }),
+    steel: new THREE.MeshStandardMaterial({ name: 'acero', vertexColors: true, map: textures.finishes, roughness: .46, metalness: .22 }),
     // Lo que está bajo el techo: el rebote del andén no existe en la escena y sin esto molinetes y columnas se ven negros.
-    inside: bounce(new THREE.MeshStandardMaterial({ name: 'acero bajo techo', vertexColors: true, roughness: .5, metalness: .12, emissive: CEILING_DAY, emissiveIntensity: DAY_INSIDE_GLOW })),
+    inside: bounce(new THREE.MeshStandardMaterial({ name: 'acero bajo techo', vertexColors: true, ...finish, roughness: .5, metalness: .12, emissive: CEILING_DAY, emissiveIntensity: DAY_INSIDE_GLOW })),
     roof: new THREE.MeshStandardMaterial({ name: 'lámina', vertexColors: true, map: textures.roof, normalMap: textures.roofNormal, roughness: .5, metalness: .25 }),
     ceiling,
     lamps,
     glass,
-    doorFrame: doorPatch(new THREE.MeshStandardMaterial({ name: 'marco puerta', vertexColors: true, roughness: .45, metalness: .1 }), false),
+    doorFrame: doorPatch(new THREE.MeshStandardMaterial({ name: 'marco puerta', vertexColors: true, map: textures.finishes, roughness: .45, metalness: .1 }), false),
     doorGlass: doorPatch(new THREE.MeshStandardMaterial({ name: 'hoja puerta', ...glassBase, ...glowing }), true),
     signs: new THREE.MeshStandardMaterial({ name: 'letreros', map: textures.signs, emissiveMap: textures.signs, emissive: '#ffffff', emissiveIntensity: .12, roughness: .4 }),
     // El tablero brilla igual de día: un LED apagado por el sol es lo primero que delata la pintura.
@@ -443,6 +643,8 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const lerpColor = (a, b, t) => a.map((value, i) => lerp(value, b[i], t));
 // La luz que rebota del andén no existe en la escena: sin esto el cielo raso se ve café de día.
 const DAY_CEILING_GLOW = .4, DAY_INSIDE_GLOW = .22, CEILING_DAY = '#e4e9ee', CEILING_NIGHT = '#fff0d8';
+// De noche baldosa y cielo raso brillan poco y parejo; lo que se lee como luz son los charcos bajo cada luminaria.
+const NIGHT_FLOOR_GLOW = .2, NIGHT_CEILING_GLOW = .2, NIGHT_POOLS = { floor: .28, halo: .55, lane: .2 };
 const TONE = { luminaire: [.34, 1.5], head: [.4, 1.55], green: [.85, 1.1], red: [.7, 1], eave: [.16, 1.25], reader: [.7, 1] };
 
 function createKits() {
@@ -666,10 +868,14 @@ function buildIsland(kits) {
     // Sombra bajo el bordillo amarillo: separa el piso del andén de la base.
     concrete.quad([x + s * .002, FLOOR - .22, Z_SOUTH], [x + s * .002, FLOOR - .1, Z_SOUTH], [x + s * .002, FLOOR - .1, Z_NORTH], [x + s * .002, FLOOR - .22, Z_NORTH], [shade(high, .62), shade(C.concreteDark, .3), shade(C.concreteDark, .3), shade(high, .62)], { facing: [s, 0, 0] });
     // Bordillo saliente amarillo: la raya que todo pasajero conoce.
-    const lip = x + s * .03;
-    concrete.quad([x, FLOOR - .1, Z_SOUTH], [lip, FLOOR - .098, Z_SOUTH], [lip, FLOOR - .098, Z_NORTH], [x, FLOOR - .1, Z_NORTH], shade(C.kerbPaint, .4), { facing: [0, -1, 0] });
-    concrete.quad([lip, FLOOR - .098, Z_SOUTH], [lip, FLOOR + .002, Z_SOUTH], [lip, FLOOR + .002, Z_NORTH], [lip, FLOOR - .098, Z_NORTH], C.kerbPaint, { facing: [s, 0, 0] });
-    concrete.quad([lip, FLOOR + .002, Z_SOUTH], [x, FLOOR + .002, Z_SOUTH], [x, FLOOR + .002, Z_NORTH], [lip, FLOOR + .002, Z_NORTH], C.kerbPaint, { facing: UP });
+    const lip = x + s * .03, worn = rgb('#8f8a72'), tones = [];
+    for (let z = Z_NORTH; z <= Z_SOUTH; z += 2) tones.push(lerpColor(C.kerbPaint, worn, .12 + random() * .45));
+    for (let k = 0; k + 1 < tones.length; k++) {
+      const z = Z_NORTH + k * 2, zb = z + 2, a = tones[k], b = tones[k + 1];
+      concrete.quad([x, FLOOR - .1, zb], [lip, FLOOR - .098, zb], [lip, FLOOR - .098, z], [x, FLOOR - .1, z], [shade(b, .4), shade(b, .4), shade(a, .4), shade(a, .4)], { facing: [0, -1, 0] });
+      concrete.quad([lip, FLOOR - .098, zb], [lip, FLOOR + .002, zb], [lip, FLOOR + .002, z], [lip, FLOOR - .098, z], [shade(b, .84), b, a, shade(a, .84)], { facing: [s, 0, 0] });
+      concrete.quad([lip, FLOOR + .002, zb], [x, FLOOR + .002, zb], [x, FLOOR + .002, z], [lip, FLOOR + .002, z], [shade(b, .9), shade(b, .9), shade(a, .9), shade(a, .9)], { facing: UP });
+    }
     // Bajantes que hacen creíble el agua de la cubierta y topes de goma donde roza el bus.
     for (let z = Z_NORTH + 3; z < Z_SOUTH; z += 6) steel.box(x + s * .012, .46, z, .03, .82, .12, C.steelDark);
     // Un riel corrido contra el roce: los topes negros sueltos se leían como ventanitas.
@@ -707,7 +913,9 @@ function buildStructure({ steel, inside, roof, ceiling, lamps }) {
   const rod = { flat: true, caps: false };
 
   for (const z of COLUMN_Z) for (const x of [WALL_WEST, WALL_EAST]) {
+    inside.uvOf = stripUv(FINISH.column, x, z, .08, .08, FLOOR, CEILING + .04, 1.5, z * 1.3 + x * .7);
     inside.box(x, (FLOOR + CEILING + .04) / 2, z, .16, CEILING + .04 - FLOOR, .16, shade(C.steelLight, 1.12), { bottom: .72 });
+    inside.uvOf = null;
     inside.box(x, FLOOR + .08, z, .24, .16, .28, C.steelDark);
     // Cartelas: el refuerzo diagonal que une columna y cercha.
     const s = x < TERMINAL.x ? 1 : -1;
@@ -767,15 +975,20 @@ function buildStructure({ steel, inside, roof, ceiling, lamps }) {
   }
 
   // Cielo raso: paneles con juntas; encima, una tapa oscura que se ve desde afuera entre las cerchas.
-  const cells = [[WALL_WEST + .08, 74.1], [74.1, 75.9], [75.9, WALL_EAST - .08]];
+  // Los paneles de los costados toman la mitad de la hoja que tiene el polvo del lado de la luminaria.
+  const cells = [[WALL_WEST + .08, 74.1, .5, 1], [74.1, 75.9, 0, 1], [75.9, WALL_EAST - .08, 0, .5]];
   const random = seeded(2024);
-  for (let z = Z_NORTH; z < Z_SOUTH - .01; z += 1.2) {
+  let row = 0;
+  for (let z = Z_NORTH; z < Z_SOUTH - .01; z += 1.2, row++) {
     const zb = Math.min(Z_SOUTH, z + 1.2);
-    for (const [a, b] of cells) {
+    cells.forEach(([a, b, s0, s1], column) => {
       // Cada panel con su tono, y alguno manchado de goteras: hilera idéntica es lo que delata el cielo raso.
       const stain = random() < .07 ? .78 : 1, panel = shade(C.ceiling, (.88 + random() * .14) * stain);
-      ceiling.quad([a + .012, CEILING, z + .012], [b - .012, CEILING, z + .012], [b - .012, CEILING, zb - .012], [a + .012, CEILING, zb - .012], panel, { normal: [0, -1, 0], facing: [0, -1, 0] });
-    }
+      const area = FINISH.ceiling((row * 5 + column * 3 + (row >> 2)) % 8), flip = column === 1 && row % 2 === 1;
+      const [u0, u1] = flip ? [s1, s0] : [s0, s1], t1 = (zb - z) / 1.2;
+      const uv = [finishUv(area, u0, 0), finishUv(area, u1, 0), finishUv(area, u1, t1), finishUv(area, u0, t1)];
+      ceiling.quad([a + .012, CEILING, z + .012], [b - .012, CEILING, z + .012], [b - .012, CEILING, zb - .012], [a + .012, CEILING, zb - .012], panel, { normal: [0, -1, 0], facing: [0, -1, 0], uv });
+    });
   }
   // Rejillas de ventilación y bandeja de cables: lo que de verdad cuelga de un cielo raso.
   for (const z of [-46.8, -35.4, -24.6, -13.2]) {
@@ -834,10 +1047,17 @@ function buildWalls({ steel: outer, inside: steel, glass, doorFrame, doorGlass, 
     // Friso rojo continuo sobre puertas y vidrios, con una moldura de acero abajo.
     // Por dentro va con el cielo raso: su emisivo le da el rebote de luz que el andén no tiene y deja de verse negro.
     {
-      const offset = side * .03, dim = shade(C.red, .8);
-      outer.quad([x + offset, DOOR_HEAD, Z_NORTH], [x + offset, DOOR_HEAD, Z_SOUTH], [x + offset, FRIEZE_TOP, Z_SOUTH], [x + offset, FRIEZE_TOP, Z_NORTH], [dim, dim, C.red, C.red], { facing: [offset, 0, 0] });
-      const inner = x - offset, bright = shade(C.red, 1.18);
-      ceiling.quad([inner, DOOR_HEAD, Z_SOUTH], [inner, DOOR_HEAD, Z_NORTH], [inner, FRIEZE_TOP, Z_NORTH], [inner, FRIEZE_TOP, Z_SOUTH], [C.red, C.red, bright, bright], { normal: [-side, 0, 0], facing: [-side, 0, 0] });
+      // El rojo sale de la hoja de acabados, en tramos de 4 m: el color del vértice solo hace la sombra.
+      const offset = side * .03, white = [1, 1, 1], dim = shade(white, .8), bright = shade(white, 1.18), inner = x - offset;
+      for (let k = 0; k < 10; k++) {
+        const za = Z_NORTH + k * 4, zb = za + 4, strip = FINISH.frieze[(k + (side > 0 ? 1 : 0)) % 2];
+        const [s0, s1] = (k * 7 + (side > 0 ? 3 : 0)) % 3 === 0 ? [1, 0] : [0, 1];
+        outer.quad([x + offset, DOOR_HEAD, za], [x + offset, DOOR_HEAD, zb], [x + offset, FRIEZE_TOP, zb], [x + offset, FRIEZE_TOP, za], [dim, dim, white, white],
+          { facing: [offset, 0, 0], uv: [finishUv(strip, s0, 0), finishUv(strip, s1, 0), finishUv(strip, s1, 1), finishUv(strip, s0, 1)] });
+        const other = FINISH.frieze[(k + (side > 0 ? 0 : 1)) % 2];
+        ceiling.quad([inner, DOOR_HEAD, zb], [inner, DOOR_HEAD, za], [inner, FRIEZE_TOP, za], [inner, FRIEZE_TOP, zb], [white, white, bright, bright],
+          { normal: [-side, 0, 0], facing: [-side, 0, 0], uv: [finishUv(other, s1, 0), finishUv(other, s0, 0), finishUv(other, s0, 1), finishUv(other, s1, 1)] });
+      }
       // Línea de luz bajo el friso: desde el carril se lee de noche la forma de la estación.
       const led = x + side * .054, ledLow = DOOR_HEAD - .004, ledHigh = DOOR_HEAD + .026;
       lamps.uvOf = () => TONE.eave;
@@ -849,15 +1069,22 @@ function buildWalls({ steel: outer, inside: steel, glass, doorFrame, doorGlass, 
     // Puertas corredizas: marco fijo rojo, hojas que corren por dentro del vidrio fijo, línea amarilla y letrero de vagón.
     openings.forEach(([a, b], index) => {
       const center = (a + b) / 2;
-      for (const z of [a - jamb / 2, b + jamb / 2]) steel.box(x, (FLOOR + DOOR_HEAD) / 2, z, .12, DOOR_HEAD - FLOOR, jamb, C.red, { bottom: .78 });
+      for (const z of [a - jamb / 2, b + jamb / 2]) {
+        steel.uvOf = stripUv(FINISH.jamb, x, z, .06, jamb / 2, FLOOR, DOOR_HEAD, 1.2, z * 3.7 + x);
+        steel.box(x, (FLOOR + DOOR_HEAD) / 2, z, .12, DOOR_HEAD - FLOOR, jamb, [1, 1, 1], { bottom: .78 });
+        steel.uvOf = null;
+      }
       steel.box(x, DOOR_HEAD - .04, center, .14, .09, b - a + jamb * 2, C.red);
       // Caja del mecanismo, que sobresale hacia adentro.
       steel.box(x - side * .12, DOOR_HEAD - .13, center, .14, .15, b - a + 1.3, shade(C.steel, 1.1), { bottom: .7 });
       for (const [from, to, travel] of [[a, center, -(half - .04)], [center, b, half - .04]]) {
         doorFrame.slideValue = travel; doorGlass.slideValue = travel;
         const leafX = x - side * .08, bar = .055, y0 = FLOOR + .03, y1 = DOOR_HEAD - .085;
-        doorFrame.box(leafX, (y0 + y1) / 2, from + bar / 2 + .004, .03, y1 - y0, bar, C.red, { bottom: .8 });
-        doorFrame.box(leafX, (y0 + y1) / 2, to - bar / 2 - .004, .03, y1 - y0, bar, C.red, { bottom: .8 });
+        for (const z of [from + bar / 2 + .004, to - bar / 2 - .004]) {
+          doorFrame.uvOf = stripUv(FINISH.jamb, leafX, z, .015, bar / 2, y0, y1, 1.2, z * 5.3 - leafX);
+          doorFrame.box(leafX, (y0 + y1) / 2, z, .03, y1 - y0, bar, [1, 1, 1], { bottom: .8 });
+          doorFrame.uvOf = null;
+        }
         doorFrame.box(leafX, y1 - bar / 2, (from + to) / 2, .03, bar, to - from - .01, C.red);
         doorFrame.box(leafX, y0 + .05, (from + to) / 2, .03, .1, to - from - .01, C.steelDark);
         doorFrame.box(leafX, 1.92, (from + to) / 2, .036, .03, to - from - .1, C.steelLight);
@@ -994,10 +1221,10 @@ function buildFurniture({ steel, signs, board }, colliders) {
   }
   // Tablero electrónico de próximos buses, colgado sobre el pasillo y legible en ambos sentidos.
   for (const z of [-40, -30.4, -21]) {
-    const w = 1.05, y0 = 2.78, y1 = 3.28, uv = signUv(SIGN.board), cx = TERMINAL.x;
+    const w = 1.05, y0 = 2.78, y1 = 3.28, cx = TERMINAL.x;
     steel.box(cx, (y0 + y1) / 2, z, w * 2 + .12, y1 - y0 + .1, .1, C.black);
-    board.quad([cx - w, y0, z + .056], [cx + w, y0, z + .056], [cx + w, y1, z + .056], [cx - w, y1, z + .056], [1, 1, 1], { normal: [0, 0, 1], facing: [0, 0, 1], uv });
-    board.quad([cx + w, y0, z - .056], [cx - w, y0, z - .056], [cx - w, y1, z - .056], [cx + w, y1, z - .056], [1, 1, 1], { normal: [0, 0, -1], facing: [0, 0, -1], uv });
+    board.quad([cx - w, y0, z + .056], [cx + w, y0, z + .056], [cx + w, y1, z + .056], [cx - w, y1, z + .056], [1, 1, 1], { normal: [0, 0, 1], facing: [0, 0, 1], uv: signUv(SIGN.boardFromSouth) });
+    board.quad([cx + w, y0, z - .056], [cx - w, y0, z - .056], [cx - w, y1, z - .056], [cx + w, y1, z - .056], [1, 1, 1], { normal: [0, 0, -1], facing: [0, 0, -1], uv: signUv(SIGN.boardFromNorth) });
     for (const dx of [-.8, .8]) steel.tube([[cx + dx, y1, z], [cx + dx, CEILING, z]], .012, 4, C.steelDark, { flat: true, caps: false });
   }
   // Parlantes y cámaras: detalles chicos que se notan al caminar por dentro.
@@ -1036,14 +1263,22 @@ export function buildTransitTerminal({ asphalt }) {
   buildTrees(group, colliders);
 
   // De noche la luz de las luminarias cae por tramos sobre el andén y se escapa por el vidrio hasta el carril.
+  // Se suma a la baldosa y al cielo raso, que ya brillan algo: más fuerte, el centro de cada charco se quema.
   {
     const full = [[0, 0], [1, 0], [1, 1], [0, 1]], { pools } = kits;
-    for (let z = Z_NORTH + 2.4; z < Z_SOUTH; z += 4.8) {
-      pools.quad([X_WEST + .1, FLOOR + .012, z + 2.9], [X_EAST - .1, FLOOR + .012, z + 2.9], [X_EAST - .1, FLOOR + .012, z - 2.9], [X_WEST + .1, FLOOR + .012, z - 2.9], rgb('#ffe9c8', .46), { facing: UP, uv: full });
+    // Uno por cada par de luminarias, centrado bajo ellas: entre un par y el otro el piso y el cielo raso quedan en
+    // penumbra. Se cortan donde acaba el cielo raso, con la textura en su sitio, para no flotar sobre las rampas.
+    const lit = (x0, x1, y, center, half, color, facing) => {
+      const a = Math.max(Z_NORTH, center - half), b = Math.min(Z_SOUTH, center + half), v = z => (z - center + half) / (2 * half);
+      pools.quad([x0, y, a], [x1, y, a], [x1, y, b], [x0, y, b], color, { facing, uv: [[0, v(a)], [1, v(a)], [1, v(b)], [0, v(b)]] });
+    };
+    for (let z = Z_NORTH + 1.2; z < Z_SOUTH; z += 2.4) lit(X_WEST + .1, X_EAST - .1, FLOOR + .012, z, 1.6, rgb('#ffe9c8', NIGHT_POOLS.floor), UP);
+    for (const x of [74.1, 75.9]) for (let z = Z_NORTH + 1.2; z < Z_SOUTH; z += 2.4) {
+      lit(x - .8, x + .8, CEILING - .006, z, 1.2, rgb('#ffe2b8', NIGHT_POOLS.halo), [0, -1, 0]);
     }
     for (const [near, far] of [[X_EAST + .02, X_EAST + 3.2], [X_WEST - .02, X_WEST - 3.2]]) for (let z = Z_NORTH + 3; z < Z_SOUTH; z += 5.6) {
       const [a, b] = near < far ? [near - 1.6, far] : [far, near + 1.6];
-      pools.quad([a, .045, z + 3.4], [b, .045, z + 3.4], [b, .045, z - 3.4], [a, .045, z - 3.4], rgb('#ffdcae', .2), { facing: UP, uv: full });
+      pools.quad([a, .045, z + 3.4], [b, .045, z + 3.4], [b, .045, z - 3.4], [a, .045, z - 3.4], rgb('#ffdcae', NIGHT_POOLS.lane), { facing: UP, uv: full });
     }
   }
 
@@ -1084,21 +1319,23 @@ export function buildTransitTerminal({ asphalt }) {
   for (const [name, kit] of Object.entries(kits)) {
     if (name === 'road') continue;
     const mesh = addMesh(kit.geometry(), materials[name], `Estación: ${name}`, cast.has(name), receive.has(name));
-    // Como la luz de los faroles: bajo las sombras de contacto, que van con orden 1.
-    if (name === 'pools') { pools = mesh; mesh.visible = false; mesh.renderOrder = -1; }
+    if (name === 'roof') mesh.userData.rainCover = true;
+    // Como la luz de los faroles: bajo las sombras de contacto, que van con orden 1, y apagada por su material,
+    // porque la ciudad quita de la estación las mallas ocultas (los límites que son solo choque).
+    if (name === 'pools') { pools = mesh; mesh.material.visible = false; mesh.renderOrder = -1; }
   }
 
   /** De noche se encienden luminarias, letreros y charcos de luz; solo emisivos, sin luces nuevas. */
   group.userData.setNight = isNight => {
     lampTone.value = isNight ? 1 : 0;
-    materials.floor.emissiveIntensity = isNight ? .42 : .07;
+    materials.floor.emissiveIntensity = isNight ? NIGHT_FLOOR_GLOW : .07;
     materials.glass.emissiveIntensity = materials.doorGlass.emissiveIntensity = isNight ? .22 : 0;
     materials.inside.emissive.set(isNight ? CEILING_NIGHT : CEILING_DAY);
     materials.inside.emissiveIntensity = isNight ? .28 : DAY_INSIDE_GLOW;
     materials.ceiling.emissive.set(isNight ? CEILING_NIGHT : CEILING_DAY);
-    materials.ceiling.emissiveIntensity = isNight ? .85 : DAY_CEILING_GLOW;
+    materials.ceiling.emissiveIntensity = isNight ? NIGHT_CEILING_GLOW : DAY_CEILING_GLOW;
     materials.signs.emissiveIntensity = isNight ? .85 : .12;
-    pools.visible = isNight;
+    pools.material.visible = isNight;
   };
   /** Con lluvia brillan la losa, los andenes y la pintura; el andén cubierto sigue seco. */
   group.userData.setWetness = amount => {
@@ -1113,5 +1350,8 @@ export function buildTransitTerminal({ asphalt }) {
     for (const material of Object.values(materials)) material.dispose();
   };
   group.userData.colliders = colliders;
+  group.userData.cameraCeiling = new THREE.Box3(
+    new THREE.Vector3(WALL_WEST, FLOOR, Z_NORTH), new THREE.Vector3(WALL_EAST, CEILING, Z_SOUTH)
+  );
   return group;
 }

@@ -12,6 +12,7 @@ import { gaitStage, locomotionBlend, locomotionRate, measureLocomotion, stageRat
 import { bakeGaitFamily, buildGaitSources, resolveGait } from './gaitFamilies.js';
 import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
+import { dressVendorApron } from './vendorApron.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
 import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
 import { garmentAllowed, normalizeTalla } from './archetypes.js';
@@ -375,6 +376,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
         ...(p.cat === 'calzado' && !uniform ? { leather: real.calzado === 'zapatos', shoeTone: real.tonos?.calzado } : null),
         ...(p.cat === 'pelo' && real.pelo === 'crespo' ? { curl: 1 } : null)
       });
+      if (p.cat === 'ropa' && look.delantal) dressVendorApron(mesh.material, look.delantal, streetOptions.frame.arm);
       const trim = p.cat === 'pelo' && real.pelo === 'crespo' ? curlsWithoutCards
         : p.cat === 'calzado' && !GARMENTS[real.ropa]?.piernasAlAire ? shoesWithoutSocks : null;
       if (trim) mesh.geometry = trim(mesh.geometry, streetOptions.frame.worldToNormalized.clone().multiply(mesh.matrixWorld));
@@ -635,7 +637,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     },
     /** Al cambiar de modelo, la postura que se esté pidiendo entra sin transición. */
     snapPose() { inst?.bodyLanguage?.snap(); },
-    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false } = {}) {
+    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, poses = null } = {}) {
       if (!inst) return;
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
@@ -717,7 +719,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       // Lo que no es un paso ni un reposo es dueño del cuerpo o de las manos: la capa se retira.
       if (!inst.bodyLanguage) group.rotation.x = -ko * Math.PI / 2; // sin posturas horneadas, al menos se acuesta
       inst.bodyLanguage?.apply(dt, {
-        stance, style, stanceWeight, ko, koRising, koPlan, koFrom, rising, speed: gaitSpeed, phase: inst.phase,
+        stance, style, stanceWeight, ko, koRising, koPlan, koFrom, rising, poses, speed: gaitSpeed, phase: inst.phase,
         blocked: handsBlocked || target === action || poseAction,
         handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
       });
@@ -728,8 +730,9 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
-      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, step: stepFoot });
+      const stepSupport = inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, step: stepFoot });
       inst.groundContact?.apply(!detached);
+      if (stepSupport) inst.actionPose.fitFeetToSteps(movement.footSupport, movement.footSupportHeight);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);
       inst.accessories?.update();

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { buildSunField, chainSunField, fadeGlowInFog, registerNightGlow } from './SunField.js';
+import { addContactShade } from './sombraContacto.js';
 import { STATIC_CHUNK_SIZE, createRenderSectors, freezeStaticTransforms } from './StaticGeometry.js';
 import { StreetBatch, WireBatch, tint, unit } from './StreetBatch.js';
 import { crossings } from './StreetMarkings.js';
@@ -16,6 +17,7 @@ import { VIADUCT, viaductSurface } from './ColpatriaViaduct.js';
 import { inTerminal } from './TransitTerminal.js';
 import { inGasStation } from './GasStation.js';
 import { AVENUE_OVERPASS } from './AvenueLandmarks.js';
+import { addShopPools, encenderLocales } from './vitrinas.js';
 
 const T = TILE_SIZE;
 const W = tile => tile * T;
@@ -644,7 +646,9 @@ export function addStreetDetails(district, collisions = null) {
   const glow = new StreetBatch({ material: glowMaterial, name: 'Luz de faroles', receiveShadow: false, renderOrder: -1, chunkSize: STATIC_CHUNK_SIZE * 4 });
   addLampGlow(glow, district);
   addLanternPools(glow, district);
+  addShopPools(glow, district);
   registerNightGlow(glowMaterial);
+  addContactShade(district, poles);
 
   const group = new THREE.Group();
   group.name = 'Calle: cables y mobiliario';
@@ -652,6 +656,7 @@ export function addStreetDetails(district, collisions = null) {
   street.finish(group);
   wires.finish(group);
   glow.finish(group);
+  encenderLocales(district, group);
   addStreetPuddles(group, district, curbRuns(map), glowMaterial);
   district.group.add(group);
   district.streetPoles = poles;
