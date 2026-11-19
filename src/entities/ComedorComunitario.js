@@ -2,6 +2,7 @@
 // Comedor Comunitario: Almuerzo caliente gratuito cada 5 minutos.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+export const COMEDOR_NAME = 'Comedor Comunitario';
 
 export class ComedorComunitario {
   constructor(scene, position) {
@@ -118,6 +119,16 @@ export class ComedorComunitario {
   }
 
   get position() { return this.group.position; }
+
+  /** El mostrador mira a +Z y se atiende desde el borde libre de la plataforma. */
+  get gpsWaypoint() {
+    const { x, z } = this.position;
+    return { x, z: z + 1.65, access: { x, z: z + 2 }, arrivalDistance: 1.2 };
+  }
+
+  acceptsGpsArrival(position, interactionTarget) {
+    return interactionTarget === this && position.z > this.position.z;
+  }
 
   update() {}
 

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { mapeoDeGrado } from './gradoColor.js';
 import { PlayerSilhouette } from './PlayerSilhouette.js';
 import { AdaptiveResolution } from './AdaptiveResolution.js';
 import { FrustumCulling } from './FrustumCulling.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
-import { AutoQuality, GRAPHICS_PROFILES, antialiasFor, effectiveQuality } from './GraphicsQuality.js';
+import { AutoQuality, GRAPHICS_PROFILES, antialiasFor, effectiveQuality, initialGraphicsQuality } from './GraphicsQuality.js';
 import { sunFieldUniforms } from '../world/bogota/SunField.js';
 
 // Bandas verticales del cielo que se refleja: el esmalte necesita un horizonte claro entre un cenit
@@ -176,20 +177,23 @@ export class EnvironmentMix {
 }
 
 export class Renderer {
-  constructor(canvas) {
+  constructor(canvas, requestedQuality = null) {
     let saved = null;
     try { saved = localStorage.getItem('bazuko.graphics_quality'); } catch { saved = 'sin almacenamiento'; }
-    this.instance = new THREE.WebGLRenderer({ canvas, antialias: antialiasFor(saved), powerPreference: 'high-performance' });
-    this.resolution = new AdaptiveResolution(window.devicePixelRatio);
-    this.autoQuality = new AutoQuality(saved === null);
+    this.initialQuality = initialGraphicsQuality(saved, requestedQuality);
+    this.instance = new THREE.WebGLRenderer({ canvas, antialias: antialiasFor(this.initialQuality), powerPreference: 'high-performance' });
+    this._screenDensity = window.devicePixelRatio || 1;
+    this.resolution = new AdaptiveResolution(this._screenDensity);
+    this.resolution.setLimit(this._resolutionCap(this.initialQuality));
+    this.autoQuality = new AutoQuality(saved === null && !Object.hasOwn(GRAPHICS_PROFILES, requestedQuality));
     this.instance.setPixelRatio(this.resolution.ratio);
     this._pixelRatio = this.resolution.ratio;
     this.instance.setSize(window.innerWidth, window.innerHeight);
     this.instance.shadowMap.enabled = true;
     this.instance.shadowMap.type = THREE.PCFShadowMap;
 
-    // Look realista: tone mapping fílmico
-    this.instance.toneMapping = THREE.ACESFilmicToneMapping;
+    // Look realista: curva fílmica con el grado de color propio (gradoColor.js)
+    this.instance.toneMapping = mapeoDeGrado();
     this.instance.toneMappingExposure = 1.05;
     this.instance.outputColorSpace = THREE.SRGBColorSpace;
     this.silhouette = new PlayerSilhouette();
@@ -214,7 +218,7 @@ export class Renderer {
     return Math.min(globalThis.window?.devicePixelRatio || 1, GRAPHICS_PROFILES[quality].pixelRatio);
   }
 
-  setQuality(level = 'alta') {
+  setQuality(level = 'alta', remember = true) {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
     this.resolution.setLimit(this._resolutionCap(this.quality));
     this._setShadows(this.effectiveQuality !== 'baja');
@@ -224,7 +228,7 @@ export class Renderer {
     // El primer llamado es el arranque con la calidad por defecto: no es una elección y no se guarda.
     const auto = this.autoQuality;
     if (auto?.eligible && !auto.started) { auto.started = true; return; }
-    this.rememberQuality(this.quality);
+    if (remember) this.rememberQuality(this.quality);
     this._setShadows(this.effectiveQuality !== 'baja');
   }
 
@@ -234,7 +238,7 @@ export class Renderer {
     try { localStorage.setItem('bazuko.graphics_quality', quality); } catch { /* sin almacenamiento */ }
   }
 
-  get effectiveQuality() { return effectiveQuality(this.quality ?? 'alta', this.resolution?.pressure ?? 0, this.autoQuality?.tier ?? 0); }
+  get effectiveQuality() { return effectiveQuality(this.quality ?? this.initialQuality, this.resolution?.pressure ?? 0, this.autoQuality?.tier ?? 0); }
 
   /**
    * Compila de antemano las variantes con sombra, sin bloquear: el juego no se congela esperándolas,
@@ -326,7 +330,16 @@ export class Renderer {
     finally { pmrem.dispose(); }
   }
 
+  _syncScreenDensity() {
+    const density = globalThis.window?.devicePixelRatio || 1;
+    if (this._screenDensity === undefined || density === this._screenDensity) return;
+    this._screenDensity = density;
+    const cap = this._resolutionCap(this.quality ?? this.initialQuality);
+    if (cap !== this.resolution.max) this.resolution.setLimit(cap);
+  }
+
   _onResize() {
+    this._syncScreenDensity();
     this.instance.setSize(window.innerWidth, window.innerHeight);
     if (this.composer) {
       this.composer.setSize(window.innerWidth, window.innerHeight);
@@ -386,6 +399,8 @@ export class Renderer {
 
   render(scene, camera, playerRoot = null, shadowLights = [], showSilhouette = true) {
     this.instance.info.reset();
+    // Pasar la ventana a otro monitor no siempre cambia sus medidas CSS ni dispara resize.
+    this._syncScreenDensity();
     // Cambiar la resolución borra el lienzo: se hace justo antes de dibujar, o se ve un cuadro negro.
     const ratio = this.resolution?.ratio;
     if (ratio !== undefined && ratio !== this._pixelRatio) {
@@ -456,6 +471,8 @@ export class Renderer {
   }
 
   adaptResolution(frameMs, workMs = 0) {
+    // Alta conserva el detalle elegido aunque el equipo tarde más en dibujar una escena compleja.
+    if (this.quality === 'alta') return;
     // Los tirones de compilar la subida tampoco dicen nada del equipo: no pueden bajar la resolución.
     if (this._settleFrames > 0 || this.autoQuality?.preparing) {
       if (this._settleFrames > 0) this._settleFrames--;

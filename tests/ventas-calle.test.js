@@ -28,6 +28,7 @@ Math.random = azarDelJuego;
 const { chaza, fritanga, umbrella } = await import('../src/world/bogota/props.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { buildMarket } = await import('../src/world/bogota/EastLandmarks.js');
+const { Npc } = await import('../src/entities/Npc.js');
 delete globalThis.document;
 
 // Los ocho puestos de la ciudad, con el sitio, el nombre y lo que vende cada uno (Bogota.js).
@@ -61,6 +62,12 @@ function conAzar(semilla, hacer) {
 /** Funde lo estático como lo hace la ciudad al armarse. */
 const fundir = (group) => { Bogota.prototype._mergeStatic.call({ group }); return group; };
 
+function vendorDistrict(save) {
+  return Object.assign(new Bogota(save), {
+    scene: new THREE.Scene(), _add: object => object, _takesRoom() {}, getGroundHeight: () => .12
+  });
+}
+
 test('cada puesto de la calle se dibuja con cuatro llamadas como mucho y no pasa de 2.500 triángulos', () => {
   for (const puesto of PUESTOS) {
     const ciudad = new THREE.Group(), objeto = armar(puesto);
@@ -72,6 +79,27 @@ test('cada puesto de la calle se dibuja con cuatro llamadas como mucho y no pasa
     let luces = 0;
     ciudad.traverse((o) => { if (o.isLight) luces++; });
     assert.equal(luces, puesto[0] === 'fritanga' ? 1 : 0, `${puesto[1]}: la fritanga conserva su luz y la chaza no suma ninguna`);
+  }
+});
+
+test('el delantal corresponde al puesto atendido, no al arquetipo de sus transeúntes', async () => {
+  const district = vendorDistrict();
+  for (const [kind, title, items, , x, z] of PUESTOS) {
+    district._vendor(x, z, 0, kind, title, items);
+  }
+  const walker = new Npc(district.scene, new THREE.Vector3(), { arquetipo: 'vendedor' });
+  await Promise.all([...district.npcs, walker].map(person => person.preload()));
+  assert.equal(district.npcs.length, PUESTOS.length);
+  assert.equal(district.vendors.length, PUESTOS.length);
+  assert.equal(walker.look.delantal, undefined);
+  for (const [index, [kind, title, items, variant, x, z]] of PUESTOS.entries()) {
+    const seller = district.npcs[index], stall = district.vendors[index];
+    assert.ok(seller.isVendor && seller.fijo.stance === 'atender', title);
+    assert.equal(seller.person.arquetipo, 'vendedor', title);
+    assert.equal(seller.look.delantal, variant === 'dulces' ? undefined : variant, title);
+    assert.deepEqual([stall.kind, stall.stall, stall.title, stall.items, stall.position], ['shop', kind, title, items, new THREE.Vector3(x, 0, z)]);
+    assert.equal(stall.attendant, seller);
+    assert.equal(stall.interactDistance(stall.position), 0);
   }
 });
 

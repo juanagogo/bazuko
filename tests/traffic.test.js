@@ -844,7 +844,8 @@ test('con el empuje real ningún puesto de parqueo frena a la buseta en su carri
   const city = new Bogota();
   city.map = city._layout();
   const spots = city.getParkingSpots(), routes = city.getTrafficRoutes();
-  assert.ok(spots.length > 1000);
+  // La red ofrecía 1089 centros, pero en 164 la carrocería tapaba una cebra.
+  assert.ok(spots.length > 900);
   const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 40, 0, 40)], { carsPerRoute: 0, policeCount: 0 });
   // Los carriles, por celdas, para no comparar cada puesto con toda la red.
   const CELL = 12, cells = new Map(), point = new THREE.Vector3(), direction = new THREE.Vector3();
@@ -1057,7 +1058,7 @@ test('ningún puesto de parqueo deja el carro con la carrocería sobre el pasto'
   const city = new Bogota();
   city.map = city._layout();
   const spots = city.getParkingSpots();
-  assert.ok(spots.length > 1000, `${spots.length} puestos`);
+  assert.ok(spots.length > 900, `${spots.length} puestos fuera de cruces y rampas`);
   const tile = (x, z) => city.map[Math.round(z / 2)]?.[Math.round(x / 2)];
   for (const { x, z, rot } of spots) {
     const [ax, az] = rot ? [0, 1] : [1, 0];

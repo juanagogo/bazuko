@@ -15,11 +15,13 @@ export class GpsNavigation {
    * `cost` devuelve el coste de pisar el tile (Infinity si no es transitable).
    * `barrier(ax, az, bx, bz)` (metros) prohíbe tramos que una grilla de 2 m no puede representar, como un muro delgado.
    * `aisleX(x, z)` (metros) corre el centro de un tile al único pasillo libre del lugar.
+   * `destinationBarrier(to, from)` devuelve una barrera de acceso cuando ese destino necesita un paso concreto.
    */
-  constructor({ width, zMin, zMax, tileSize = 2, cost, barrier = null, aisleX = null }) {
+  constructor({ width, zMin, zMax, tileSize = 2, cost, barrier = null, aisleX = null, destinationBarrier = null }) {
     this.tileSize = tileSize;
     this.barrier = barrier;
     this.aisleX = aisleX;
+    this.destinationBarrier = destinationBarrier;
     this.width = width;
     this.zMin = zMin;
     this.height = zMax - zMin + 1;
@@ -59,17 +61,22 @@ export class GpsNavigation {
   isRoutable(x, z) { return Number.isFinite(this.costAt(x, z)); }
 
   /** Tile transitable más cercano (en espiral), útil para destinos dentro de edificios. */
-  _nearestOpen(x, z, maxRadius = 16) {
+  _nearestOpen(x, z, maxRadius = 16, canUse = null) {
     const tx = Math.round(x / this.tileSize), tz = Math.round(z / this.tileSize);
+    const open = i => i >= 0 && Number.isFinite(this.cost[i]) && (!canUse || canUse(this._point(i)));
     const direct = this._index(tx, tz);
-    if (direct >= 0 && Number.isFinite(this.cost[direct])) return direct;
+    if (open(direct)) return direct;
     let best = -1, bestD = Infinity;
     for (let r = 1; r <= maxRadius && best < 0; r++) {
       for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
         const i = this._index(tx + dx, tz + dz);
-        if (i < 0 || !Number.isFinite(this.cost[i])) continue;
-        const d = dx * dx + dz * dz;
+        if (!open(i)) continue;
+        let d = dx * dx + dz * dz;
+        if (canUse) {
+          const p = this._point(i);
+          d = (p.x - x) ** 2 + (p.z - z) ** 2;
+        }
         if (d < bestD) { bestD = d; best = i; }
       }
     }
@@ -85,8 +92,8 @@ export class GpsNavigation {
     return { x: this.aisleX ? this.aisleX(x, z) : x, z };
   }
 
-  _blocked(a, b) {
-    return this.barrier !== null && this.barrier(a.x, a.z, b.x, b.z);
+  _blocked(a, b, destinationBarrier) {
+    return !!(this.barrier?.(a.x, a.z, b.x, b.z) || destinationBarrier?.(a.x, a.z, b.x, b.z));
   }
 
   _push(size, node, f) {
@@ -121,8 +128,22 @@ export class GpsNavigation {
 
   /** Ruta en coordenadas del mundo, o null si no hay camino a pie. */
   findPath(from, to) {
-    const start = this._nearestOpen(from.x, from.z, 6);
-    const goal = this._nearestOpen(to.x, to.z);
+    // Un destino atendido a pie puede indicar el nodo que conecta con su punto exacto de atención.
+    const access = to.access;
+    if (access && !this.isRoutable(access.x, access.z)) return null;
+    if (access && Math.hypot(to.x - from.x, to.z - from.z) < (to.arrivalDistance ?? 0)
+      && this._acceptsArrival(to, from)) {
+      return [{ x: from.x, z: from.z }, { x: to.x, z: to.z }];
+    }
+    const destinationBarrier = this.destinationBarrier?.(to, from);
+    // Si el jugador quedó sobre una barrera escénica en una partida anterior, puede dar el primer paso para salir.
+    const blocksSpawn = destinationBarrier?.(from.x, from.z, from.x, from.z);
+    const canStart = destinationBarrier && (p => !destinationBarrier(p.x, p.z, p.x, p.z) &&
+      (blocksSpawn || !destinationBarrier(from.x, from.z, p.x, p.z)));
+    const end = access ?? to;
+    const canEnd = destinationBarrier && (p => !destinationBarrier(p.x, p.z, end.x, end.z));
+    const start = this._nearestOpen(from.x, from.z, 6, canStart);
+    const goal = this._nearestOpen(end.x, end.z, 16, canEnd);
     if (start < 0 || goal < 0) return null;
     const width = this.width, cost = this.cost, g = this._g, parent = this._parent;
     const stamp = this._stamp, closed = this._closed;
@@ -150,7 +171,7 @@ export class GpsNavigation {
         if (!Number.isFinite(step) || closed[next] === search) continue;
         // Sin cortar esquinas de edificios en diagonal.
         if (dx && dz && (!Number.isFinite(cost[cz * width + nx]) || !Number.isFinite(cost[nz * width + cx]))) continue;
-        if (this.barrier && this._blocked(this._cellPoint(cx, cz), this._cellPoint(nx, nz))) continue;
+        if ((this.barrier || destinationBarrier) && this._blocked(this._cellPoint(cx, cz), this._cellPoint(nx, nz), destinationBarrier)) continue;
         const tentative = g[current] + step * (dx && dz ? SQRT2 : 1);
         if (stamp[next] === search && tentative >= g[next]) continue;
         stamp[next] = search; g[next] = tentative; parent[next] = current;
@@ -161,16 +182,21 @@ export class GpsNavigation {
     const cells = [];
     for (let i = goal; i >= 0; i = parent[i]) cells.push(i);
     cells.reverse();
-    return this._smooth(cells);
+    const path = this._smooth(cells, destinationBarrier);
+    if (destinationBarrier && Math.hypot(path[0].x - from.x, path[0].z - from.z) > .15) {
+      path.unshift({ x: from.x, z: from.z });
+    }
+    if (access) path.push({ x: to.x, z: to.z });
+    return path;
   }
 
   /**
    * Línea de visión sobre la grilla: cada tile atravesado debe pertenecer a la ruta
    * original o costar como mucho lo mismo que los tiles que el atajo omite.
    */
-  _clear(a, b, maxCost) {
+  _clear(a, b, maxCost, destinationBarrier) {
     const pa = this._point(a), pb = this._point(b);
-    if (this._blocked(pa, pb)) return false;
+    if (this._blocked(pa, pb, destinationBarrier)) return false;
     const steps = Math.ceil(Math.hypot(pb.x - pa.x, pb.z - pa.z) / (this.tileSize * .35));
     for (let s = 1; s < steps; s++) {
       const t = s / steps;
@@ -181,7 +207,7 @@ export class GpsNavigation {
     return true;
   }
 
-  _smooth(cells) {
+  _smooth(cells, destinationBarrier) {
     if (cells.length <= 2) return cells.map(i => this._point(i));
     // `_closed` ya no se usa tras la búsqueda; marca las celdas de la ruta con un sello propio.
     this._pathMark = ++this._search;
@@ -192,7 +218,7 @@ export class GpsNavigation {
       let next = anchor + 1, maxCost = 0;
       for (let j = anchor + 2; j < cells.length; j++) {
         const segmentMax = Math.max(maxCost, this.cost[cells[j - 1]]);
-        if (!this._clear(cells[anchor], cells[j], segmentMax)) break;
+        if (!this._clear(cells[anchor], cells[j], segmentMax, destinationBarrier)) break;
         next = j; maxCost = segmentMax;
       }
       points.push(this._point(cells[next]));
@@ -210,7 +236,7 @@ export class GpsNavigation {
     this.waypoint = { name: 'Punto marcado', icon: '📍', ...waypoint };
     // El marcador, la llegada y el guardado comparten el mismo punto accesible.
     // Un clic sobre un edificio dirige a la acera que utiliza el buscador de rutas.
-    if (!this.isRoutable(waypoint.x, waypoint.z)) {
+    if (!waypoint.access && !this.isRoutable(waypoint.x, waypoint.z)) {
       const accessible = this._nearestOpen(waypoint.x, waypoint.z);
       if (accessible >= 0) Object.assign(this.waypoint, this._point(accessible));
     }
@@ -270,7 +296,8 @@ export class GpsNavigation {
    */
   update(pos, now = performance.now()) {
     if (!this.waypoint || !pos) return null;
-    if (Math.hypot(pos.x - this.waypoint.x, pos.z - this.waypoint.z) < GPS_ARRIVAL_DISTANCE) {
+    if (Math.hypot(pos.x - this.waypoint.x, pos.z - this.waypoint.z) < (this.waypoint.arrivalDistance ?? GPS_ARRIVAL_DISTANCE)
+      && this._acceptsArrival(this.waypoint, pos)) {
       const reached = this.waypoint;
       this.clear();
       this.lastArrival = reached;
@@ -282,6 +309,10 @@ export class GpsNavigation {
       return 'replanned';
     }
     return null;
+  }
+
+  _acceptsArrival(waypoint, position) {
+    return typeof waypoint.acceptsArrival !== 'function' || waypoint.acceptsArrival(position);
   }
 
   /** Puntos que faltan, empezando por el jugador. */

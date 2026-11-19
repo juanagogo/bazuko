@@ -6,6 +6,9 @@ import { TERMINAL } from './TransitTerminal.js';
 import { CITY_CARRERAS, CITY_CALLES, EXTENSION_PARKS } from './CityLayout.js';
 import { CARACAS } from './StreetLayout.js';
 import { LAKE_PARK } from './LakePark.js';
+import { METRO, METRO_SPANS } from './MetroBogota.js';
+import { pedestrianCrossings } from './StreetCrossings.js';
+import { neighborhoodAt } from './NeighborhoodIdentity.js';
 import { GAS_STATION } from './GasStation.js';
 import { D69_STORE } from './D69Store.js';
 import { COLPATRIA } from './Colpatria.js';
@@ -28,17 +31,25 @@ export function cityMapPlan(district, tileSize = 2) {
     worldWidth: width * tileSize,
     worldHeight: (zMax - zMin + 1) * tileSize,
   };
+  // Lo que el plano dibuja además de los tiles: el óvalo del lago, las copas y los cruces con cebra. Se arma una vez.
+  let extras = null;
+  const dibujos = () => extras ??= {
+    lago: { x: LAKE_PARK.lakeX, z: LAKE_PARK.lakeZ, rx: LAKE_PARK.radiusX, rz: LAKE_PARK.radiusZ },
+    arboles: (district.treePlan ?? []).map(tree => [tree.x, tree.z, tree.scale ?? 1]),
+    cruces: pedestrianCrossings(district.map).map(paso => {
+      const x = paso.x + paso.dx * paso.length / 2, z = paso.z + paso.dz * paso.length / 2;
+      return { ...paso, piedra: neighborhoodAt(x, z)?.streets?.paintedLines === false };
+    }),
+  };
   plan.tiles = () => {
     const puntos = [];
     for (let z = VIADUCT.start; z <= VIADUCT.end; z += 2) puntos.push([bridgeCenter(z), z]);
-    // Viaducto elevado de la Primera Línea del Metro sobre la Av. Caracas (x: 75)
-    const puntosMetro = [];
-    for (let z = 10; z <= 310; z += 2) puntosMetro.push([75, z]);
     return {
       ancho: width, desdeZ: zMin, hastaZ: zMax, T: tileSize, tipo: typeAt,
       originX: plan.originX, originZ: plan.originZ,
       viaducto: { ancho: VIADUCT.width, puntos },
-      metro: { ancho: 7, puntos: puntosMetro },
+      metro: { ancho: METRO.deckWidth, tramos: METRO_SPANS.map(span => span.map(z => [METRO.x, z])) },
+      ...dibujos(),
     };
   };
   return plan;
@@ -49,7 +60,7 @@ export function streetLabels(tileSize = 2) {
   const mid = ([a, b]) => (a + b) / 2 * tileSize;
   return [
     ...CITY_CARRERAS.map(band => ({ name: band[2], x: mid(band), vertical: true })),
-    { name: 'Av. Caracas', x: mid([CARACAS.lanes[0][0], CARACAS.lanes[1][1]]), vertical: true },
+    { name: 'Av. Caracas', x: mid([CARACAS.lanes[0][0], CARACAS.lanes[1][1]]), calzadaX: mid(CARACAS.lanes[0]), vertical: true },
     ...CITY_CALLES.map(band => ({ name: band[2], z: mid(band), vertical: false })),
     // Calles propias del oriente: solo existen allí, así que su nombre no se pinta en el centro.
     ...EAST_LABELLED_CARRERAS.map(band => ({ name: band[2], x: mid(band), vertical: true })),
@@ -73,5 +84,5 @@ export function cityLandmarks(tileSize = 2) {
       x: (p.x0 + p.x1) / 2 * tileSize, z: (p.z0 + p.z1) / 2 * tileSize })),
     ...[[PLAZA, '⛲', '#d9c49a'], [TEUSAQUILLO_PARK, '🌳', '#6fcf6a'], [TOWERS_LOT, '🏢', '#c46a4c'], [MARKET, '🧺', '#e8a33d']].map(([zone, icon, color]) =>
       ({ name: zone.name, icon, color, x: (zone.x0 + zone.x1) / 2 * tileSize, z: (zone.z0 + zone.z1) / 2 * tileSize })),
-  ];
+  ].map(lugar => ({ ...lugar, hito: true }));
 }

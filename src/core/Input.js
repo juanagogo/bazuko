@@ -16,6 +16,7 @@ export class Input {
       window.addEventListener('keydown', (e) => {
         if (this.locked) return;
         if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        if (e.code === 'Space' && e.target?.closest?.('button, summary')) return;
         if (e.code?.startsWith?.('Arrow') || e.code === 'Space') e.preventDefault?.();
         const keys = e.gamepadInput ? this._gamepadKeys : this.keys;
         // La repetición automática de una tecla sostenida no es otra pulsación: ni vuelve a saltar ni a interactuar.
@@ -50,13 +51,17 @@ export class Input {
         }
       });
 
-      window.addEventListener('blur', () => {
+      const soltarControles = () => {
         this.keys = {};
         this._gamepadKeys = {};
         this.pressedThisFrame.clear();
         this.touch.move.x = 0;
         this.touch.move.y = 0;
         this.touch.running = false;
+      };
+      window.addEventListener('blur', soltarControles);
+      globalThis.document?.addEventListener?.('visibilitychange', () => {
+        if (document.hidden) soltarControles();
       });
     }
   }

@@ -17,15 +17,22 @@ Asfalto gris azulado, concreto tibio, ladrillo tolete, metal pintado y vegetaci�
 
 `GroundDressing.js` viste el pasto y los andenes sin texturas por parque: una máscara de desgaste de un texel por metro sale del mapa de tiles, y el ruido que la cúpula ya tiene en memoria da manchas, matas y borde mordido. La ciudad detrás de la terminal arranca a unos 15 m de la reja, con retiros y calles entre bloques por donde se ven los de atrás.
 
+En los andenes renovados, las losetas prefabricadas de concreto miden 40 × 40 cm. Cada pieza tiene un tono ligeramente distinto, con grano fino y juntas biseladas que pierden detalle con la distancia. La guía de barras, los botones de los vados y la franja de arcilla conservan su dibujo. Las placas fundidas del centro viejo y el empedrado de La Candelaria mantienen su propio acabado.
+
 La humedad suaviza la rugosidad y oscurece ligeramente el suelo sin convertirlo en metal. En baja se conserva una respuesta más discreta a la lluvia. La ribera usa una sola malla, un material PBR y una textura de detalle pequeña, con mezcla por vértices; no modifica el fondo ni la profundidad física.
 
 `NeighborhoodIdentity.js` contiene perfiles y límites en coordenadas del mundo. `UrbanBuildings.js` aplica los perfiles a sus materiales conservando el plan físico y las alturas de los solares.
 
 Las casas genéricas usan ahora semillas locales por coordenadas. Su distribución y sus detalles permanecen estables aunque se creen más materiales. Antes dependían del azar global, por lo que no se reproduce necesariamente la misma fachada de una partida anterior; los tiles y las colisiones físicas sí conservan sus valores.
 
+En la Carrera 6, la vitrina abierta de Pan de las Cinco tiene un mostrador detrás del vidrio. Seis bandejas sostienen pan aliñado, mogollas y panes de queso. El tubo ilumina la repisa y la corteza de los panes y deja la pared del fondo en sombra. La persiana contigua conserva su posición.
+
+
+En Teusaquillo, el sendero norte de adoquín conserva sus cuatro metros de ancho. A los lados hay cuatro jardines bajos con borde de ladrillo y dos superficies de concreto que llegan a las bancas. En la Caracas, el recorrido peatonal a la estación Calle 72 conecta la cebra con el lector por el separador.
+
 ## Edificios y vegetación
 
-`BuildingDetails.js` añade marcos, alféizares, rejas, bajantes y remates de azotea a las fachadas. El detalle cercano se concentra en los pisos bajos y se agrupa por material y pared; sigue la ocultación de edificios en vista isométrica. Los vidrios, las cortinas y algunas ventanas cálidas varían por edificio; el brillo de estas últimas se activa solo de noche, sin luces adicionales. Los locales conservan sus avisos y persianas. Las casas mantienen los balcones de madera y los tonos de ladrillo y revoque del centro.
+`BuildingDetails.js` añade marcos, alféizares, rejas, bajantes y remates de azotea a las fachadas. El detalle cercano se concentra en los pisos bajos y se agrupa por material y pared; sigue la ocultación de edificios en vista isométrica. Los vidrios, las cortinas y algunas ventanas cálidas varían por edificio; el brillo de estas últimas se activa solo de noche, sin luces adicionales. Las fachadas que dan a una vía pueden tener una vitrina o una persiana con un único aviso de oficio. Frente a patios y parques se ven puertas, rejas y ventanas de vivienda. En las esquinas del oriente, los murales y las ventanas laterales miran al espacio público.
 
 `UrbanTrees.js` sustituye las copas poliédricas por ramas y hojas recortadas con tres siluetas inspiradas en urapanes, eucaliptos y arrayanes. Son interpretaciones visuales, no modelos botánicos. Cada árbol usa dos mallas y comparte los materiales y dos texturas pequeñas con los demás; el viento mueve el follaje y su sombra con el mismo uniforme.
 
