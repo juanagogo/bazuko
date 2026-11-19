@@ -155,6 +155,7 @@ export class Player {
     this._glanceTimer = 0;
     this._glanceSide = 1;
     this.ridingBike = null;
+    this.audio?.voces?.registrarJugador?.(this);
   }
 
   /** Humo en la escena (cigarrillo, porro y basuco); se crea la primera vez que hace falta */
@@ -551,6 +552,8 @@ export class Player {
   receiveHit(direction, strength = 2, { salud } = {}) {
     if (this.ragdoll?.active) return;
     this.melee.cancel();
+    if (salud <= 0) this._punchBuffered = false;
+    if (salud > 0 && strength > 0) this.audio?.voces?.quejaJugador?.(this);
     // Al volante (CarjackSystem) no lo tumban ni lo empujan: queda aturdido un momento y el carro sigue solo.
     if (this.atWheel) { this._impactTime = Math.max(this._impactTime, .3); return; }
     this._impactVelocity.copy(direction).setY(0);

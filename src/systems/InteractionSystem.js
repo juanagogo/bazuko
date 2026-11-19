@@ -389,8 +389,9 @@ export class InteractionSystem {
     const result = target.steal(caughtMult);
     if (!result) return;
     if (result.items.includes('retrovisor')) {
-      if (target.traffic) this.audio?.playMovingTheft?.(target);
-      else this.audio?.playCarAlarm?.(target);
+      if (target.traffic) {
+        if (target.driverAvailable !== false) this.audio?.playMovingTheft?.(target);
+      } else this.audio?.playCarAlarm?.(target);
       // El juego decide si el conductor del carro en circulación se baja a perseguirte.
       window.dispatchEvent(new CustomEvent('mirror-stolen', { detail: { car: target } }));
     }
@@ -603,7 +604,7 @@ export class InteractionSystem {
       this.stats.animo = Math.max(0, this.stats.animo - 2);
       this.audio?.play('empty');
       for (const npc of nearbyPedestrians) {
-        if (!npc.isVendor && !npc.koState && typeof npc._fleeFrom === 'function') {
+        if (!npc.isVendor && typeof npc._fleeFrom === 'function') {
           npc._fleeFrom(this.player.position);
           npc.fleeTimer = 4.0;
         }

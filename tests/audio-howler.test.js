@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from 'three';
 import { AudioSystem } from '../src/systems/AudioSystem.js';
+import { NPC_CONVERSATIONS } from '../src/data/npcConversations.js';
 import { audioMetadata } from './helpers/audio-file.js';
 
 // Ejecuta Howler real, incluida su extensión espacial. Solo se sustituye
@@ -65,13 +66,52 @@ function realHowler() {
   return sandbox;
 }
 
+test('al cancelar la charla de la camioneta durante la decodificación, solo se informan errores de una charla vigente', async t => {
+  const { Howl, Howler } = realHowler();
+  const audio = new AudioSystem({ HowlClass: Howl, howler: Howler, eventTarget: null });
+  t.after(() => audio.dispose());
+  await audio.ready;
+  const clip = NPC_CONVERSATIONS.find(conversation => conversation.id === 'camioneta');
+  audio.conversations.conversations = [clip];
+  const people = ['mujer', 'hombre'].map((sexo, i) => ({
+    _voz: clip.hablantes[i ? 'B' : 'A'].voz, person: { sexo }, position: new THREE.Vector3(2 + i, 0, 0),
+  }));
+  const errores = [];
+  t.mock.method(console, 'error', (...args) => errores.push(args));
+  const listener = new THREE.Vector3();
+  audio.conversations.update(listener, people, 0);
+  const sounds = audio.conversations._current.sounds;
+  assert.ok(sounds.every(sound => sound.state() === 'loading'));
+  const lateEvents = sounds.map(sound => new Promise(resolve => sound.once('loaderror', (_id, error) => resolve(error))));
+  audio.conversations.cancel();
+  assert.deepEqual(await Promise.all(lateEvents), Array(4).fill('Decoding audio data failed.'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(errores, [], 'la decodificación terminó cuando la charla ya había soltado las cuatro tomas');
+  assert.ok(sounds.every(sound => !sound.loadFailed && sound.state() === 'unloaded'));
+
+  t.mock.method(Howler.ctx, 'decodeAudioData', function (_bytes, _success, failure) { setTimeout(failure, 0); });
+  audio.conversations.clear();
+  audio.conversations.update(listener, people, 1000);
+  const active = audio.conversations._current.sounds;
+  await Promise.all(active.map(sound => new Promise(resolve => sound.once('loaderror', resolve))));
+  // Howler publica cada oyente en un turno separado, en orden inverso al de registro.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(errores.length, 4);
+  assert.ok(active.every(sound => sound.loadFailed));
+  audio.conversations.update(listener, people, 1050);
+  audio.conversations.update(listener, people, 1600);
+  assert.equal(audio.conversations.busy, true, 'la pareja continúa con un turno en subtítulos');
+  assert.equal(audio.conversations.active, false);
+  assert.equal(audio.conversations._current.playing.text, clip.lineas[0].texto);
+});
+
 test('Howler real reproduce motores y claxones normales conectados a la salida sin panner', async () => {
   const { Howl, Howler } = realHowler();
   const audio = new AudioSystem({ HowlClass: Howl, howler: Howler, eventTarget: null });
   try {
     await audio.ready;
     audio.vehicles.random = () => .5;
-    const vehicle = { car: { position: new THREE.Vector3(112, 0, 97), group: new THREE.Group() }, speed: 0, personBlocked: true };
+    const vehicle = { car: { driverId: 'conductor:11', position: new THREE.Vector3(112, 0, 97), group: new THREE.Group() }, speed: 0, personBlocked: true };
     const bus = { position: new THREE.Vector3(116, 0, 98), group: new THREE.Group(), speed: 4, personBlocked: false };
     const listener = new THREE.Vector3(112, 0, 94), camera = new THREE.PerspectiveCamera();
     for (let frame = 0; frame < 20; frame++) audio.updateWorld(.1, listener, camera, [vehicle], bus);

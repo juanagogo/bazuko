@@ -17,6 +17,8 @@ import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapS
 import { originEffect } from '../data/origins.js';
 import { WaypointBeacon } from '../entities/WaypointBeacon.js';
 import { cityMapPlan, cityLandmarks, streetLabels } from '../world/bogota/CityMapRaster.js';
+import { MARKET } from '../world/bogota/EastZones.js';
+import { TERMINAL } from '../world/bogota/TransitTerminal.js';
 import { WeatherSystem } from '../world/WeatherSystem.js';
 import { openPauseMenu } from '../ui/PauseMenu.js';
 import { Player } from '../entities/Player.js';
@@ -786,6 +788,8 @@ export class Game {
       )
     );
     this.interaction.register(this.dealer);
+    // De noche le susurra a quien pasa cerca (voces/VocesDelMundo.js).
+    if (this.audio?.vocesMundo) this.audio.vocesMundo.jibaro = this.dealer;
 
     // ===== La mesa =====
     this.craftingStation = new CraftingStation(
@@ -1406,6 +1410,26 @@ export class Game {
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
   }
 
+  _conversationContextFor(playerOnFoot) {
+    const context = this._conversationContext ??= {
+      sitioCerca: (place, { x, y, z }) => {
+        if (place === 'paradero') return x >= TERMINAL.x0 && x <= TERMINAL.x1 && z >= TERMINAL.z0 && z <= TERMINAL.z1 + 8;
+        if (place === 'mercado') {
+          const reach = 8;
+          return x >= MARKET.x0 * TILE_SIZE - reach && x <= MARKET.x1 * TILE_SIZE + reach
+            && z >= MARKET.z0 * TILE_SIZE - reach && z <= MARKET.z1 * TILE_SIZE + reach;
+        }
+        if (place === 'parque' || place === 'cartucho') return zonaDe(this.world.active, x, z) === place;
+        const dog = this.dog?.position;
+        return place === 'perro' && !!dog && Math.hypot(x - dog.x, y - dog.y, z - dog.z) <= 8;
+      }
+    };
+    context.lluvia = !!this.weather?.isRaining;
+    context.noche = this.clock.isNight;
+    context.jugador = playerOnFoot;
+    return context;
+  }
+
   _loop = (stamp) => {
     if (!this._running) return;
     requestAnimationFrame(this._loop);
@@ -1459,7 +1483,7 @@ export class Game {
       this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], camera: this.cameraRig.camera, hour: this.clock.hour });
       this.cameraRig.follow(this.player.position, dt, this.collisions);
       this.audio.updateSteps(false, false);
-      this.audio.updateWorld(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
+      this.audio.updateWorld(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? [], this._conversationContextFor(false));
       this.audio.setRaining(!!this.weather?.isRaining);
       this._handleDeath();
       this._renderFrame(now, false); this.input.endFrame();
@@ -1626,7 +1650,7 @@ export class Game {
       list.push(this.carjack.audioEntry);
       audibles = list;
     }
-    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, audibles, this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
+    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, audibles, this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? [], this._conversationContextFor(!driving && !this.player.isSwimming));
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
     const travelled = driving || this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);

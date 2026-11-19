@@ -30,6 +30,15 @@ export const PROPINA = Object.freeze({ min: 1000, max: 2000, billete: 5000, prob
 /** Lo que regalan en vez de plata. */
 export const COMIDA_REGALADA = Object.freeze(['pan', 'agua', 'refresco']);
 
+/**
+ * Lo que contesta con su voz el conductor según su reacción (las frases de data/vocesCalle.js). El que sube el
+ * vidrio, el que no mira y el que pita no dicen nada, y el insulto no tiene frase grabada: va citado en el aviso.
+ */
+export const VOZ_REACCION = Object.freeze({ propina: 'semaforo_si', paga: 'semaforo_si', comida: 'semaforo_si', excusa: 'semaforo_no' });
+
+/** De las reacciones de un show, cuál se oye: una sola voz por show, la del que más dio. */
+export const ORDEN_VOZ = Object.freeze(['propina', 'paga', 'comida', 'excusa']);
+
 /** Lo que grita el conductor que insulta (va entre comillas en el aviso). */
 export const DICHOS = Object.freeze({
   insulto: [

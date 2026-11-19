@@ -3,6 +3,7 @@ import { ITEMS } from '../data/items.js';
 import { cop } from '../utils/money.js';
 import { LOW_STANCES } from '../character/archetypes.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
+import { tipoDeRaponazo } from '../systems/voces/robo.js';
 
 export const CONFIG = {
   stealDistance: 1.8,
@@ -121,6 +122,11 @@ export class StealSystem {
       }
     }
     this.targetNpc = nearest;
+    // Con alguien a tiro se pide lo que gritaría con su voz si le roban: una vez por persona, no cada cuadro.
+    if (nearest !== this._vozPedida) {
+      this._vozPedida = nearest;
+      if (nearest) this.game.audio?.voces?.prepararRobo?.(nearest);
+    }
     if (!nearest || this.cooldown > 0) return;
     if (this.game.interaction) {
       this.game.interaction.stealPrompt = '[E] Cosquilleo (sigiloso) · [Q] Robo directo';
@@ -340,7 +346,7 @@ export class StealSystem {
       const caughtMult = this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1;
       const noticeChance = Math.max(0.2, ((npc?.alerta ?? 0.5) - bonus) * caughtMult);
       if (Math.random() < noticeChance) {
-        npc?.alarmedByTheft?.(this.game.player.position);
+        this._alarmar(npc, 'pillado');
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
         this._robbed(npc, true);
         this.game.witnesses?.report?.('robo', npc);
@@ -363,7 +369,7 @@ export class StealSystem {
     this.game.witnesses?.report?.('robo', npc);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
-    npc.alarmedByTheft?.(this.game.player.position);
+    this._alarmar(npc, tipoDeRaponazo(npc));
     const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
     if (isStrong && this.game.stats) {
       // De noche y de madrugada quien se deja robar se defiende con más rabia (JornadaSystem).
@@ -376,6 +382,15 @@ export class StealSystem {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
     }
     this._alertPolice();
+  }
+
+  /**
+   * La víctima se entera y huye. Si tiene lista una frase grabada que cuadre con el robo ('pillado', 'raponazo' o
+   * 'raponazo-sin-bolso'), la grita con su voz y su burbuja (AudioSystem.voces); si no, su grito de siempre.
+   */
+  _alarmar(npc, tipo) {
+    const conVoz = !!npc && this.game.audio?.voces?.decirRobo?.(npc, tipo) === true;
+    npc?.alarmedByTheft?.(this.game.player.position, conVoz);
   }
 
   // Robarle a alguien se sabe en la calle: la fama lo escucha (ver systems/StreetLife.js).

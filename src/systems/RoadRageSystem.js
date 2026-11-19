@@ -4,6 +4,7 @@
 // precarga durante la pantalla de carga y se reutiliza.
 import * as THREE from 'three';
 import { AngryDriver, ROAD_RAGE } from '../entities/AngryDriver.js';
+import { vozParaConductor, sexoDeConductor } from './voces/identidad.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
@@ -50,6 +51,15 @@ export class RoadRageSystem {
     });
   }
 
+  _createDriver(slot, car = this.traffic?.vehicles?.find(vehicle => vehicle.spawnOrdinal === slot)?.car) {
+    const voice = vozParaConductor(driverId(slot), car?.kind);
+    const sexo = sexoDeConductor(voice);
+    const driver = new AngryDriver(this.scene, { ...this._driverOptions, sexo, personRandom: seededRandom(0x47110000 + slot) });
+    driver.stableId = driverId(slot);
+    driver._voz = voice;
+    return driver;
+  }
+
   get active() { return this.state !== 'idle'; }
 
   /** Llamado al robar un retrovisor. Devuelve true si el conductor va a bajarse. */
@@ -57,6 +67,19 @@ export class RoadRageSystem {
     if (!car?.traffic || !this.driver || this.active || this.random() >= ROAD_RAGE.chance) return false;
     const vehicle = this.traffic?.hold(car, true);
     if (!vehicle) return false;
+    if (this.driver?.stableId !== id || this.driver?._disposed) {
+      if (this.driver && !this.driver.isDead) {
+        this._remember(this.driver);
+        this.driver.dispose();
+      }
+      this.driver = this._createDriver(slot, car);
+      const saved = this._roster.get(id);
+      if (saved) {
+        this.driver.health = saved.health;
+        this.driver.looted = saved.looted;
+      }
+    }
+    this.audio?.voces?.vincularConductor?.(this.driver, car, id);
     this.vehicle = vehicle;
     this.state = 'stopping';
     this.stopTimer = 0;
