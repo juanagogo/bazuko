@@ -29,7 +29,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 const { Npc, NPC_COMBAT, NPC_LOD } = await import('../src/entities/Npc.js');
 const { KO_HAND_DOWN } = await import('../src/character/BodyLanguage.js');
 const { LOW_STANCES } = await import('../src/character/archetypes.js');
-const { RISE_TIME, smooth } = await import('../src/character/BodyLanguage.js');
+const { RISE_TIME } = await import('../src/character/BodyLanguage.js');
 const { Player, pickGesture } = await import('../src/entities/Player.js');
 const { AngryDriver } = await import('../src/entities/AngryDriver.js');
 const { StealSystem } = await import('../src/features/steal.js');
@@ -218,6 +218,7 @@ test('un golpe en el piso no lo empuja, no lo hace girar de un tirón y no devue
   const up = await person('oficinista', { fijo: { stance: 'brazos-cruzados' } });
   up.look = { real: { edad: 'adulto' } };
   const from = up.position.clone();
+  up.defenseResolve = 1;
   hurt(up);
   assert.ok(up._counter, 'de pie sí se defiende');
   run(up, NPC_COMBAT.stagger);
@@ -283,7 +284,7 @@ function lowest(mesh) {
   return min;
 }
 
-test('al caer noqueado el paraguas cae al piso sin atravesarlo, y al levantarse vuelve a la mano', async () => {
+test('el paraguas se apoya en el piso durante la caída final y sigue al lado de su dueño', async () => {
   const npc = await person('oficinista', { fijo: null, groundHeight: () => .15 });
   npc.position.y = .15;
   npc.person.paraguas = 2;
@@ -303,15 +304,16 @@ test('al caer noqueado el paraguas cae al piso sin atravesarlo, y al levantarse 
   assert.ok(Math.hypot(umbrella.position.x - npc.position.x, umbrella.position.z - npc.position.z) < 1.3, 'queda a su lado');
   assert.equal(umbrella.material, material, 'sin material nuevo');
   assert.equal(umbrella.geometry, geometry, 'sin geometría nueva');
-  run(npc, NPC_COMBAT.fall + NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2, { isRaining: true });
-  assert.equal(npc.koState, null);
-  assert.notEqual(umbrella.parent, npc.scene, 'lo recogió');
+  run(npc, 15, { isRaining: true });
+  assert.ok(npc.deathSettled);
+  assert.equal(umbrella.parent, npc.scene);
   assert.equal(umbrella.visible, true);
-  assert.equal(npc.character.last.stance, 'paraguas');
-  assert.equal(npc._dropped.length, 0);
+  assert.equal(npc._dropped.length, 1);
+  npc.dispose();
+  assert.equal(umbrella.parent, null);
 });
 
-test('el bastón cae al piso al noquearlo, sale de la mano en los dos modelos y lo recupera al levantarse', async () => {
+test('el bastón cae una sola vez y sigue en el piso al cambiar de modelo', async () => {
   const npc = await person('oficinista', { fijo: null });
   npc.person.real = { accesorios: [{ id: 'baston-calle', color: '#3a2a1a' }] };
   const other = await person('oficinista', { fijo: null });
@@ -332,11 +334,11 @@ test('el bastón cae al piso al noquearlo, sale de la mano en los dos modelos y 
   npc.fullChar = null;
   await npc._loadFull();
   assert.equal(npc.fullChar.props.get('baston-calle'), false);
-  run(npc, NPC_COMBAT.fall + NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2);
-  assert.equal(npc.koState, null);
-  assert.equal(cane.parent, null, 'lo recogió');
-  assert.equal(npc.lodChar.props.get('baston-calle'), true);
-  assert.equal(npc.fullChar.props.get('baston-calle'), true);
+  run(npc, 15);
+  assert.ok(npc.deathSettled);
+  assert.equal(cane.parent, npc.scene);
+  assert.equal(npc.lodChar.props.get('baston-calle'), false);
+  assert.equal(npc.fullChar.props.get('baston-calle'), false);
   npc.dispose();
   assert.equal(npc._fallenCane, null);
 });
@@ -377,6 +379,63 @@ const toBody = (npc, mesh) => {
   return Math.hypot(dx - bx * along, dz - bz * along);
 };
 const KO = { damage: 999 };
+
+test('en un puente la caída y el bastón conservan el piso del cuerpo aunque haya calle debajo', async () => {
+  const groundHeight = (_x, _z, currentY) => currentY > 4 ? 7.8 : .1;
+  const npc = await carrier('baston', { at: [30, 7.8, 2], groundHeight });
+  try {
+    npc.takeHit({ ...KO, knockback: .6, dir: { x: 1, z: 0 } });
+    run(npc, 1);
+    assert.equal(npc._koPlan, 'espalda');
+    assert.equal(npc.position.y, 7.8);
+    assert.ok(Math.abs(lowest(npc._fallenCane) - 7.8) < .01);
+  } finally {
+    npc.dispose();
+  }
+});
+
+test('el bastón toca el suelo al volcar, en tres direcciones de empuje y sobre dos niveles de piso', async () => {
+  const flat = () => .12;
+  const curb = x => x < 30.35 ? .06 : .12;
+  const slope = (x, z) => .12 + (x - 30) * .041 + (z - 2) * .025;
+  for (const [facing, dir, groundHeight, label] of [
+    [0, { x: 0, z: -1 }, flat, 'de frente'],
+    [Math.PI / 3, { x: 1, z: 0 }, curb, 'entre césped y andén'],
+    [-Math.PI / 2, { x: -Math.SQRT1_2, z: Math.SQRT1_2 }, slope, 'en diagonal sobre la pendiente']
+  ]) {
+    const npc = await carrier('baston', { at: [30, groundHeight(30, 2), 2], facing, groundHeight });
+    npc.takeHit({ ...KO, knockback: 1.35, dir });
+    const cane = npc._fallenCane, drop = npc._dropped[0], step = 1 / 120;
+    let minimum = Infinity, lastY = cane.position.y, rise = 0;
+    const samples = new Set();
+    for (let i = 0; i <= 44; i++) {
+      minimum = Math.min(minimum, lowest(cane, (x, z) => {
+        const y = groundHeight(x, z);
+        samples.add(y);
+        return y;
+      }));
+      rise = Math.max(rise, cane.position.y - lastY);
+      lastY = cane.position.y;
+      assert.equal(npc._dropped.length, 1);
+      assert.equal(cane.parent, npc.scene);
+      assert.equal(npc.lodChar.props.get('baston-calle'), false);
+      assert.equal(npc.fullChar.props.get('baston-calle'), false);
+      npc.update(step, { player: far() });
+    }
+    assert.ok(minimum > -.0001 && minimum < .004, `${label}: tocó sin hundirse (${minimum} m)`);
+    assert.ok(rise <= (groundHeight === curb ? .061 : .004), `${label}: subió ${rise} m en un cuadro`);
+    if (groundHeight === curb) assert.equal(samples.size, 2, 'durante la caída la malla alcanza ambas alturas');
+    assert.equal(drop.fall, 1, 'frenó en el tiempo de siempre');
+    const rest = cane.position.clone();
+    run(npc, .15, {}, 1 / 60);
+    assert.ok(cane.position.distanceTo(rest) < 1e-6, 'se queda apoyado');
+    run(npc, 15, {}, 1 / 60);
+    assert.equal(npc._dropped.length, 1);
+    assert.equal(cane.parent, npc.scene);
+    assert.equal(npc.character.props.get('baston-calle'), false);
+    npc.dispose();
+  }
+});
 
 for (const what of ['paraguas', 'baston']) test(`${what}: con cualquier empuje queda junto al cuerpo, en el piso, y ahí se queda hasta que llega la mano`, async () => {
   for (const knockback of [0, .9, 1.62, 2.88]) {
@@ -630,18 +689,16 @@ test('ni el bastón ni el paraguas quedan dentro de lo que ocupa sitio', async (
   assert.equal(npc._dropFits(npc.position, 33, 2, 33, 2.5), true, 'al lado cabe');
 });
 
-test('un segundo KO no hereda dónde terminó el primero', async () => {
+test('un golpe posterior no vuelve a orientar un cuerpo caído', async () => {
   const npc = await person('oficinista', { fijo: null, navigation: null, isWalkable: open, facing: 0 });
-  npc.takeHit({ ...KO, knockback: 2, dir: { x: 1, z: 0 }, attacker: { position: new THREE.Vector3(29, 0, 2) } });
-  assert.ok(npc._koEnd, 'miró dónde iba a terminar');
-  npc._koEnd.set(999, 999, 999);
-  npc.koState = null;
-  npc.health = 0;
-  npc._riseLeft = 1;
-  npc._lowFrom = 'dormido';
-  npc._startKnockout(false);
-  assert.equal(npc._koPlan, 'dormido');
-  assert.equal(npc._koEnd, null, 'dormido no vuelve a mirar: no le queda el dato viejo');
+  npc.takeHit({ ...KO, knockback: 2, dir: { x: 1, z: 0 } });
+  run(npc, 1);
+  const at = npc.position.clone(), yaw = npc.root.rotation.y;
+  assert.equal(npc.takeHit({ ...KO, knockback: 2, dir: { x: -1, z: 0 } }), false);
+  run(npc, 2);
+  assert.deepEqual(npc.position.toArray(), at.toArray());
+  assert.equal(npc.root.rotation.y, yaw);
+  npc.dispose();
 });
 
 test('quien se paraba de una banca sigue en ella si lo noquean', async () => {

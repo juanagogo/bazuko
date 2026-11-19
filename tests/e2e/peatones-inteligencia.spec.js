@@ -378,7 +378,12 @@ test('quien ve un raponazo huye por la red de andenes, lejos del ladrón y sin e
 
 test('una pelea arma corrillo: los curiosos llegan a paso vivo y quedan en arco a 4-6 m, de cara y repartidos, y se van al acabarse', async ({ page }) => {
   await start(page);
-  await page.evaluate(async () => { window.__peatones = await import('/src/entities/npc/temperament.js'); });
+  await page.evaluate(async () => {
+    window.__peatones = await import('/src/entities/npc/temperament.js');
+    // Los seis están libres para acercarse al corrillo. Una llamada o grabación los ocuparía durante 6 u 8 s
+    // y la patrulla podría arrestar al jugador quieto antes de medir la dispersión.
+    window.__game.witnesses.random = () => .99;
+  });
   const spot = await openSpot(page);
   expect(spot.open).toBeGreaterThan(40);
   // Seis curiosos a 10 m, tres de cada lado (como llega la gente por un andén): cada grupo se reparte por su lado del arco.
@@ -490,6 +495,13 @@ async function fightWhereThePeopleAre(page, used) {
 
 test('una pelea donde anda gente junta mirones sin que nadie los ponga: cada uno mira desde su distancia, nadie parado en la calzada, no más de ocho, y se van al acabarse', async ({ page }) => {
   await start(page);
+  await page.evaluate(() => {
+    const { traffic } = window.__game;
+    const dispatch = traffic.dispatchTo.bind(traffic);
+    // Las llamadas siguen su curso. La patrulla de esa llamada no se despacha: si arresta al jugador quieto,
+    // la tarjeta de arresto pausa la partida antes de poder ver la dispersión.
+    traffic.dispatchTo = (position, player, kind) => kind === 'pelea' ? false : dispatch(position, player, kind);
+  });
   // La gente es la que anda por la calle, con el temperamento que le tocó; por eso varía: de cada 24 peleas donde más
   // gente hay, en 21 mira alguien. Hasta tres peleas, en tres sitios distintos, o hasta juntar tres mirones.
   const fights = [];

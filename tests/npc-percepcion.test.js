@@ -938,6 +938,36 @@ class FakeSound {
   unload() { this.unloaded = true; }
 }
 
+test('quien ya está conversando mira a los ojos del otro y puede retomar el vistazo de paso', async () => {
+  const nav = plaza();
+  const a = await walker([20, 0, 20], nav), b = await walker([21.1, .12, 20], nav);
+  const s = scene([a, b]);
+  const player = new THREE.Vector3(20, 0, 28);
+  run(s, .2, player);
+  stand(a, Math.PI / 2); stand(b, -Math.PI / 2);
+  const eyes = b.position.clone().add(new THREE.Vector3(-.084, 1.69, 0));
+  b.character.eyePosition = target => target.copy(eyes);
+  let pose;
+  a.character.update = (_dt, params) => { pose = params; };
+  a.mind.gaze = () => .62;
+  a.talk = { partner: b, ready: true };
+  b.talk = { partner: a, ready: false };
+  a.update(1 / 30, { player });
+  assert.equal(pose.conversationEye, null);
+  assert.equal(pose.look, .62);
+
+  b.talk.ready = true;
+  a.update(1 / 30, { player });
+  assert.ok(pose.conversationEye.equals(eyes), 'también llega al modelo liviano');
+  assert.equal(pose.look, 0);
+
+  a.mind.leaveTalk();
+  a.update(1 / 30, { player });
+  assert.equal(pose.conversationEye, null);
+  assert.equal(pose.look, .62);
+  a.dispose(); b.dispose();
+});
+
 test('quien conversa y reacciona (se asusta o se arrima a mirar) deja la charla: se corta para los dos, se calla la voz y nadie sigue hablando solo', async () => {
   for (const caso of ['susto', 'corrillo']) {
     const nav = plaza();
@@ -947,8 +977,9 @@ test('quien conversa y reacciona (se asusta o se arrima a mirar) deja la charla:
     run(s, .2, player);
     stand(a, Math.PI / 2); stand(b, -Math.PI / 2);
     temper(a, caso === 'susto' ? 'miedoso' : 'curioso'); temper(b, 'indiferente');
+    a._voz = 'conversa_a'; b._voz = 'conversa_b';
     const conversation = {
-      id: 'prueba', hablantes: { A: { sexo: npcSexo(a) }, B: { sexo: npcSexo(b) } },
+      id: 'prueba', hablantes: { A: { voz: a._voz, sexo: npcSexo(a) }, B: { voz: b._voz, sexo: npcSexo(b) } },
       lineas: [{ hablante: 'A', texto: 'Uno.', file: 'a1' }, { hablante: 'B', texto: 'Dos.', file: 'b1' }, { hablante: 'A', texto: 'Tres.', file: 'a2' }]
     };
     const sounds = [];
