@@ -20,6 +20,7 @@ import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
 import { animationDamping, SecondaryMotion } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
+import { BicyclePose, bicycleGrips } from './bicyclePose.js';
 import { airborneStrideRate, nextFootfall } from './jumpMotion.js';
 import { BodyLanguage } from './BodyLanguage.js';
 import { bakeStances } from './stances.js';
@@ -306,7 +307,7 @@ function hideCovered(bodyMesh, baseIndex, hidden, light = false) {
 
 // ---------- instancia ----------
 
-async function buildInstance(catalog, look, lod = false, profile = resolveAnimationProfile(), gait = resolveGait()) {
+async function buildInstance(catalog, look, lod = false, profile = resolveAnimationProfile(), gait = resolveGait(), poseBicicleta = false) {
   // Los poros son del modelo completo: de lejos no se ven y el liviano se ahorra una variante del programa.
   const detailPromise = lod ? Promise.resolve(null) : loadStreetSkinDetail();
   const real = normalizeReal(catalog, look.real);
@@ -437,12 +438,13 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   // Los NPC lejanos conservan su ruta liviana, incluso si el catálogo carece de proxy.
   const secondaryMotion = lod ? null : new SecondaryMotion(bones, seed);
   const actionPose = new ActionPose(bones, { lod, frame: root });
+  const bicyclePose = poseBicicleta ? new BicyclePose(actionPose, { grips: bicycleGrips(body.id, bodyGltf.scene), bones }) : null;
   const groundContact = isMixamoProfile(profile.id) ? new MixamoGroundContact(root) : null;
   const hipBone = [...bones.values()].find(bone => /hips$/i.test(bone.name));
   const hipBlend = groundContact || !hipBone ? null : new HipBlend(actions, hipBone);
   const bodyLanguage = stanceLibrary ? new BodyLanguage(bones, stanceLibrary, { lod, seed, lean: clips.walk?.userData.lean ?? 0 }) : null;
   // Cada uno empieza en otro punto del paso: dos que salen juntos no marchan al compás. El banco de revisión empieza siempre en su primer cuadro.
-  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, bicyclePose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Bastón en la mano: al andar apoya en el piso y al correr se agarra por la mitad; el peso cambia sin saltos. */
@@ -511,7 +513,7 @@ export function disposeRealisticInstance(instance) {
  * Crea el personaje. `look` es la apariencia compartida con el procedural (nombre, piel, peloColor…)
  * más `look.real` con las piezas realistas.
  */
-export async function createRealisticCharacter(look = {}, { lod = false, animaciones = 'default', andar = null } = {}) {
+export async function createRealisticCharacter(look = {}, { lod = false, animaciones = 'default', andar = null, poseBicicleta = false } = {}) {
   const profile = resolveAnimationProfile(animaciones, MODEL_BASE);
   const gait = resolveGait(andar);
   const catalog = await loadCatalog();
@@ -548,7 +550,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   async function setLook(l) {
     if (disposed) return;
     const my = ++token;
-    const next = await buildInstance(catalog, l, lod, profile, gait);
+    const next = await buildInstance(catalog, l, lod, profile, gait, poseBicicleta);
     if (my !== token || disposed) { disposeRealisticInstance(next); return; }
     disposeRealisticInstance(inst);
     inst = next;
@@ -635,7 +637,19 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     },
     /** Al cambiar de modelo, la postura que se esté pidiendo entra sin transición. */
     snapPose() { inst?.bodyLanguage?.snap(); },
-    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false } = {}) {
+    fitBicycle(bike) {
+      if (!inst?.bicyclePose) return;
+      inst.bicyclePose.fit(bike);
+      if (inst.weapon) inst.weapon.object.visible = false;
+      if (inst.cigarette) inst.cigarette.object.visible = false;
+      if (inst.basucoProps) inst.basucoProps.pipe.object.visible = inst.basucoProps.lighter.object.visible = false;
+    },
+    fitCart(cart) {
+      if (!inst?.bicyclePose) return;
+      inst.bicyclePose.fitCart(cart);
+      if (inst.weapon) inst.weapon.object.visible = false;
+    },
+    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, poses = null } = {}) {
       if (!inst) return;
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
@@ -687,7 +701,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
           rate = airborneStrideRate(rate, inst.phase, movement.timeToGround, dt, aligned, movement.verticalVelocity, movement.launchSpeed > 0);
           if (aligned) stepFoot = nextFootfall(inst.phase);
         }
-        inst.phase = (inst.phase + rate * dt) % 1;
+        inst.phase = movement.cartBacking ? THREE.MathUtils.euclideanModulo(inst.phase - rate * dt, 1) : (inst.phase + rate * dt) % 1;
         a.walk.time = inst.phase * locomotion.walkDuration;
         if (trot) {
           a.trote.time = inst.phase * trot.walkDuration;
@@ -695,8 +709,9 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
         } else if (a.run) a.run.time = inst.phase * locomotion.runDuration;
       } else {
         inst.runShare += ((running && a.run ? 1 : 0) - inst.runShare) * k;
-        if (a.walk) a.walk.timeScale = sourceCadence ? 1 : THREE.MathUtils.clamp(gaitSpeed / 1.4, 0.6, 1.6);
-        if (a.run) a.run.timeScale = sourceCadence ? 1 : THREE.MathUtils.clamp(gaitSpeed / 3.5, 0.7, 1.4);
+        const direction = movement.cartBacking ? -1 : 1;
+        if (a.walk) a.walk.timeScale = direction * (sourceCadence ? 1 : THREE.MathUtils.clamp(gaitSpeed / 1.4, 0.6, 1.6));
+        if (a.run) a.run.timeScale = direction * (sourceCadence ? 1 : THREE.MathUtils.clamp(gaitSpeed / 3.5, 0.7, 1.4));
       }
       const stage = inst.runShare;
       const share = trot ? { walk: Math.max(0, 1 - stage), trote: stage <= 1 ? stage : 2 - stage, run: Math.max(0, stage - 1) } : { walk: 1 - stage, run: stage };
@@ -707,6 +722,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       }
       // Las capas se retiran en orden inverso al de composición; ningún frame deja
       // offsets sobre la base que evaluará el mezclador o leerá un futuro ragdoll.
+      inst.bicyclePose?.restore();
       inst.groundContact?.restore();
       inst.actionPose.restore();
       inst.secondaryMotion?.restore();

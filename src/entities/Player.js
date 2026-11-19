@@ -360,7 +360,7 @@ export class Player {
     this.modelKind = kind;
     if (kind === 'realista') {
       this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
-        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT
+        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT, poseBicicleta: true
       });
       try {
         this._realistic = await this._realisticPromise;
@@ -616,6 +616,33 @@ export class Player {
     return input.isDown('Space') || input.isDown('KeySpace');
   }
 
+  _stepOffBicycle(yaw, collisions, groundHeight, waterInfo) {
+    if (!this.isGrounded || this.isSwimming || typeof groundHeight !== 'function' || !collisions) return;
+    const district = this.game?.world?.active;
+    const start = this._before.copy(this.position);
+    const step = this._right.set(-Math.cos(yaw) * .57, 0, Math.sin(yaw) * .57);
+    // La cicla queda ladeada hacia su izquierda. Primero se busca apoyo por la derecha.
+    for (let side = 0; side < 2; side++, step.negate()) {
+      const x = start.x + step.x, z = start.z + step.z;
+      if (district?.isWalkableAt?.(x, z) === false) continue;
+      const surface = groundHeight(x, z, { from: start, grounded: true, surface: this.groundSurface });
+      const y = typeof surface === 'number' ? surface : surface?.height;
+      if (!Number.isFinite(y) || Math.abs(y - start.y) > .23) continue;
+      if (surface?.layer && this.groundSurface?.layer && surface.layer !== this.groundSurface.layer) continue;
+      if ((waterInfo?.(x, z)?.surfaceY ?? -Infinity) > y + .08) continue;
+      const clear = collisions.resolveMove(start, step, this.radius, this._forward);
+      if (Math.hypot(clear.x - x, clear.z - z) > .025) continue;
+      // Se comprueba también el espacio a la cota del andén si el paso cambia de altura.
+      if (Math.abs(y - start.y) > .025) {
+        const raised = this._delta.copy(start).setY(y);
+        const raisedClear = collisions.resolveMove(raised, step, this.radius, this._forward);
+        if (Math.hypot(raisedClear.x - x, raisedClear.z - z) > .025) continue;
+      }
+      this.position.set(x, y, z);
+      return;
+    }
+  }
+
   update(dt, camera, collisions, groundHeight = null, npcs = [], waterInfo = null) {
     this.time += dt;
     this.hitLean.remove(this.character.group);
@@ -647,9 +674,19 @@ export class Player {
 
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
-    const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
-      this.jumpVelocity = 5.2;
+    const pressedJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
+    // Recién salido de un borde todavía se puede saltar (coyote); un salto pedido justo antes de tocar el
+    // suelo se recuerda y sale al apoyar (búfer). Un salto ya dado no deja coyote, y mientras algo impide
+    // saltar (nadar, pegar, aturdido, la zorra, pedalear, buscar) no se guarda nada que salga después.
+    const jumpBlocked = this.isSwimming || this.melee.active || this.isStunned || this.hasCart || this.sorting || !!this.ridingBike;
+    this._coyote = jumpBlocked ? 0 : wasGrounded ? JUMP.coyoteTime : Math.max(0, this._coyote - dt);
+    this._jumpBuffer = jumpBlocked ? 0 : Math.max(0, this._jumpBuffer - dt);
+    const onFoot = this.isGrounded || this._coyote > 0;
+    if (pressedJump && !onFoot && !jumpBlocked) this._jumpBuffer = JUMP.bufferTime;
+    const wantsJump = pressedJump || (this.isGrounded && this._jumpBuffer > 0);
+    if (wantsJump && onFoot && !jumpBlocked) {
+      // El impulso es inmediato: la pose muestra el empuje sin retrasar el mando.
+      this.jumpVelocity = this._launchSpeed = JUMP.launchSpeed;
       this.isGrounded = false;
       this._coyote = this._jumpBuffer = 0;
       this._jumpCut = false;
@@ -670,6 +707,7 @@ export class Player {
     // Desmontar de la bicicleta con E
     if (this.ridingBike && typeof this.input?.consumePress === 'function' && this.input.consumePress('KeyE')) {
       this.ridingBike.dismount();
+      this._stepOffBicycle(this.root.rotation.y, collisions, groundHeight, waterInfo);
     }
 
     // con la pipa en la boca se queda quieto
@@ -751,6 +789,14 @@ export class Player {
       );
     } else {
       this.position.add(delta);
+    }
+    const cart = this.hasCart && wasGrounded && !this.isSwimming && !stunned ? this.game?.cart : null;
+    let cartYaw = null;
+    if (cart?.isAttached) {
+      const yaw = this.root.rotation.y;
+      const target = moving ? Math.atan2(dir.x, dir.z) : this._faceYaw ?? yaw;
+      const upright = moving ? 1 - (this.character.sleepWeight ?? 0) : 1;
+      cartYaw = cart.limitPlayerMove(before, this.position, yaw, yaw + shortestTurn(target - yaw) * Math.min(1, (moving ? 14 : 9) * dt) * upright);
     }
     this.speed = dt > 0 ? before.distanceTo(this.position) / dt : 0;
     this.isGrounded ??= true;
@@ -898,19 +944,22 @@ export class Player {
       const diff = shortestTurn(Math.atan2(dir.x, dir.z) - this.root.rotation.y);
       // Al levantarse voltea solo lo que ya se enderezó: acostado barrería el piso como una aspa.
       const upright = 1 - (this.character.sleepWeight ?? 0);
-      this.root.rotation.y += diff * Math.min(1, 14 * dt) * upright;
+      const turnWeight = Math.min(1, 14 * dt) * upright;
+      this.root.rotation.y = cartYaw ?? previousYaw + diff * turnWeight;
 
       // Inclinación centrífuga (banking lateral en giros)
-      const targetBank = THREE.MathUtils.clamp(-diff * (this.isSwimming ? .08 : running ? 0.38 : 0.22), -0.22, 0.22) * upright;
+      const turn = cartYaw === null ? diff : shortestTurn(cartYaw - previousYaw) / Math.max(.001, turnWeight);
+      const targetBank = THREE.MathUtils.clamp(-turn * (this.isSwimming ? .08 : running ? 0.38 : 0.22), -0.22, 0.22) * upright;
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, targetBank, 1 - Math.exp(-14 * dt));
       // Inclinación hacia adelante con la aceleración
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, (this.isSwimming ? 0 : running ? 0.08 : 0.02) * upright, 1 - Math.exp(-10 * dt));
     } else {
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
+      if (cartYaw !== null) this.root.rotation.y = cartYaw;
       if (this._faceYaw != null) {
-        const diff = shortestTurn(this._faceYaw - this.root.rotation.y);
-        this.root.rotation.y += diff * Math.min(1, 9 * dt);
+        const diff = shortestTurn(this._faceYaw - previousYaw);
+        if (cartYaw === null) this.root.rotation.y += diff * Math.min(1, 9 * dt);
         if (Math.abs(diff) < .01) this._faceYaw = null;
       }
     }
@@ -926,7 +975,6 @@ export class Player {
     this._updateBasuco(dt);
     this._smoke?.update(dt);
     this._updateGlance(dt);
-    if (this.ridingBike) this.ridingBike.update(dt, this, this.audio);
     // Una pulsación nueva muestra al menos un frame de anticipación, también a 10 FPS.
     const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, npcs);
     if (hit) {
@@ -949,6 +997,9 @@ export class Player {
     m.landing = this.landing; m.swimming = this.isSwimming; m.waterDepth = this.waterDepth;
     m.surfaceY = this.waterFrame?.surfaceY;
     m.turnRate = dt > 0 ? (this.root.rotation.y - previousYaw) / dt : 0;
+    const yaw = this.root.rotation.y;
+    m.cartBacking = cartYaw !== null && (this.position.x - before.x) * Math.sin(yaw)
+      + (this.position.z - before.z) * Math.cos(yaw) < -.0006;
     m.launchSpeed = airborne ? this._launchSpeed : 0; m.groundGap = gap;
     m.groundRate = this._groundRate; m.groundSlope = this._groundSlope;
     m.timeToGround = airborne ? timeToGround(gap, this.jumpVelocity, this._launchSpeed > 0, this._groundRate) : 0;
@@ -960,21 +1011,22 @@ export class Player {
     // Aturdido (un golpe, un carro) la pose suelta los pies clavados del aterrizaje.
     m.stunned = stunned;
 
-    const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
+    const riding = !!this.ridingBike;
+    const stance = this._updateBodyLanguage(dt, riding || moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
     this.character.update(dt, {
       stance,
       style: this.bodyStyle,
-      speed: stunned ? 0 : this.speed / this.modelScale,
-      running,
-      action: stunned ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
+      speed: stunned || riding ? 0 : this.speed / this.modelScale,
+      running: running && !riding,
+      action: stunned || riding || this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
       actionProgress: this.actionProgress,
       movement: this.movement,
-      attack: this.attack,
-      smoke: this._holdingCigarette && !this.attack ? this.smoking : null,
-      basuco: this.basuco && !this.basuco.stowed ? this.basuco.t : null,
+      attack: riding ? null : this.attack,
+      smoke: !riding && this._holdingCigarette && !this.attack ? this.smoking : null,
+      basuco: !riding && this.basuco && !this.basuco.stowed ? this.basuco.t : null,
       look: this._glance,
       t: this.time,
       load: this.load,
@@ -983,6 +1035,17 @@ export class Player {
     // La inclinación del golpe va en el cuerpo, después de animarlo, y se quita al empezar el cuadro siguiente.
     this.hitLean.update(dt);
     if (!this._impactHeavy) this.hitLean.apply(this.character.group);
+  }
+
+  /** Se llama con la biela y la dirección del cuadro que se va a dibujar. */
+  updateBicyclePose() {
+    if (this.ridingBike && !this.ragdoll.active) this.character.fitBicycle?.(this.ridingBike);
+  }
+
+  updateCartPose(cart) {
+    if (!(cart?.gripWeight > .002) || !this.isGrounded || this.ridingBike || this.ragdoll.active || this.isStunned || this.isSwimming) return;
+    if (this.action || this.sorting || this._holdingCigarette || (this.basuco && !this.basuco.stowed)) return;
+    this.character.fitCart?.(cart);
   }
 
   dispose() {
