@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { ITEMS, LOOT_COMMON, LOOT_RARE } from '../data/items.js';
 import { PICKUP_COOLDOWN, COLORS, SORT_BASE_TIME } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
+import { makePickupSupply, pickupSupplyKind, placePickupSupply, restOnPickupGround } from './pickupVisual.js';
 
 // Por debajo de esto el aura ya no se distingue y no se dibuja.
 const AURA_MIN_OPACITY = .005;
@@ -10,9 +11,10 @@ const AURA_MIN_OPACITY = .005;
 const FAR_DETAIL_MARGIN = 4;
 
 export class Pickup {
-  constructor(scene, position, { modelKind = 'bolsa', cooldown = PICKUP_COOLDOWN } = {}) {
+  constructor(scene, position, { modelKind = 'bolsa', cooldown = PICKUP_COOLDOWN, groundHeight = null } = {}) {
     this.scene = scene;
     this.modelKind = modelKind;
+    this.groundHeight = groundHeight;
     this.refillSeconds = cooldown;
     this.used = false;
     this.cooldown = 0;
@@ -89,6 +91,7 @@ export class Pickup {
     this.onRespawn = null;
     this.guaranteedLoot = [];
     this._pendingLoot = null;
+    this._restOnGround();
   }
 
   get position() { return this.group.position; }
@@ -102,7 +105,39 @@ export class Pickup {
       this.mesh = model;
       this.importedModel = model;
       this.group.add(model);
+      model.visible = !this.used || this.modelKind === 'contenedor';
+      this._restOnGround();
+      this._syncSupply();
     });
+  }
+
+  _restOnGround() {
+    if (!this.groundHeight) return;
+    const { x, y, z } = this.position;
+    const ground = this.groundHeight(x, z, y);
+    if (!Number.isFinite(ground)) return;
+    restOnPickupGround(this.mesh, this.groundHeight, y);
+    const rise = ground - y;
+    this.marker.position.y = rise + .02;
+    this.aura.position.y = rise + .03;
+    this.sortBarBg.position.y = rise + .06;
+    this.sortBarFill.position.y = rise + .065;
+  }
+
+  _syncSupply() {
+    if (!this.groundHeight || this.modelKind !== 'bolsa') return;
+    const kind = this.used ? null : pickupSupplyKind(this._pendingLoot?.items ?? this.guaranteedLoot);
+    if (!kind) {
+      if (this.looseMaterial) this.looseMaterial.visible = false;
+      return;
+    }
+    if (this.looseMaterial?.name !== kind) {
+      this.looseMaterial?.removeFromParent();
+      this.looseMaterial = makePickupSupply(kind);
+      this.group.add(this.looseMaterial);
+    }
+    this.looseMaterial.visible = true;
+    placePickupSupply(this.looseMaterial, this.position, this.groundHeight);
   }
 
   setBoost(active) {
@@ -180,6 +215,7 @@ export class Pickup {
     this.marker.visible = false;
     this.aura.visible = false;
     this.stopSorting();
+    this._syncSupply();
 
     return { items, rare, sorted: pending?.sorted ?? sorted };
   }
@@ -193,6 +229,7 @@ export class Pickup {
     this.mesh.visible = true;
     this.marker.visible = true;
     this.aura.visible = true;
+    this._syncSupply();
   }
 
   update(dt) {
@@ -218,6 +255,7 @@ export class Pickup {
         this.mesh.visible = true;
         this.marker.visible = true;
         this.aura.visible = true;
+        this._syncSupply();
       }
     }
 
@@ -251,6 +289,8 @@ export class Pickup {
 
   relocate(newPosition) {
     this.group.position.copy(newPosition);
+    this._restOnGround();
+    this._syncSupply();
   }
 
   _weightedPick(table) {
@@ -266,6 +306,7 @@ export class Pickup {
   dispose() {
     this._disposed = true;
     if (this.importedModel) disposeImportedInstance(this.importedModel);
+    this.looseMaterial?.removeFromParent(); // Sus recursos están compartidos por todas las bolsas.
     this.scene.remove(this.group);
     this.group.traverse((o) => {
       o.geometry?.dispose?.();

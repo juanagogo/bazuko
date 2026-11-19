@@ -520,7 +520,9 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
   .retazo__grito { font-size: 20px; }
   .retazo__orden { display: none; }
   #quickbar .qb-slot { width: 44px; }
-  #panel-dock { left: calc(228px + var(--safe-l)); gap: 2px; }
+  #panel-dock { left: auto; right: calc(4px + var(--safe-r)); gap: 2px; }
+  body:not(.tactil):has(#quickbar.visible) #panel-dock { bottom: calc(58px + var(--safe-b)); }
+  body:not(.tactil):has(#quickbar.visible) #interaction-prompt { bottom: calc(112px + var(--safe-b)); }
   /* Con la patrulla encima hay que ver la calle: el cartón se pliega a destino y cifras, sin radar ni barras. */
   body:has(#wanted[data-estado="encima"]) #hud-dock { display: block; padding-top: 44px; }
   body:has(#wanted[data-estado="encima"]) #minimap-container { padding: 0; }

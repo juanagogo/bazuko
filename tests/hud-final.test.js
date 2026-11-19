@@ -193,7 +193,6 @@ test('el cartón dice lo que lo dejó tirado', () => {
   assert.equal(tituloDeTirado('golpe'), 'TE CASCARON');
 });
 
-
 test('los golpes conservan el rumbo y el control con salud 36, 35 y 1; a cero dejan paso a la derrota', () => {
   const nuevo = () => {
     const p = new Player(new THREE.Scene(), { axis: { x: 0, z: 0 }, isRunning: false }, { salud: 100 });

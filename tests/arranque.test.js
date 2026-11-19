@@ -39,9 +39,10 @@ test('la carga llega a construir la ciudad: el constructor crea todo lo que _spa
   assert.ok(llego, 'la carga pasa de vaciar lo que se recoge, los carros y las bicicletas a construir la ciudad');
 });
 
-test('el constructor arma las alucinaciones al azar y deja en blanco la hora real del comedor y el puesto de las bicicletas', () => {
+test('el constructor prepara las alucinaciones, el comedor y las bicicletas antes de cargar la ciudad', () => {
   const game = new Game(doble);
-  assert.ok(game.randomHallucinations, 'las alucinaciones al azar existen desde el constructor');
+  assert.ok(game.randomHallucinations);
   assert.equal(game.lastComedorTimestamp, null);
+  assert.deepEqual(game.bicycles, []);
   assert.equal(game.bikeFence, null);
 });
