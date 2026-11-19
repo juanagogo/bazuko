@@ -97,6 +97,7 @@ import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
 import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
 import { openTransit, openHogar } from '../ui/streetMenus.js';
+import { RapEnElBus } from '../ui/RapEnElBus.js';
 import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
@@ -192,6 +193,8 @@ export class Game {
     this.interaction.jornada = this.jornada;
     // Caleta, fama, cuidar carros, comida que se daña, armas que se gastan, pila, transporte y hogar de paso.
     this.street = new StreetLife(this);
+    // El rap del vagón: sin página no hay escena, y la estación no lo ofrece.
+    this.rapBus = typeof document !== 'undefined' && document.body ? new RapEnElBus(this) : null;
     this.interaction.street = this.street;
 
     this.steal = new StealSystem(this);
@@ -1441,7 +1444,7 @@ export class Game {
       // Dormir sí se ve: el cuerpo se acuesta aunque la simulación esté quieta.
       if (this.isSleeping && !globalThis.document?.hidden) this.player.updateSleepPose?.(dt);
       // Detrás de una página entera no hay nada que ver.
-      const tapado = this.menu?.opaco && !this._trasRender;
+      const tapado = (this.menu?.opaco || this.rapBus?.opaco) && !this._trasRender;
       if (!globalThis.document?.hidden && !tapado && (this.isSleeping || now >= (this._nextPausedRender ?? 0))) {
         this._nextPausedRender = now + 1000 / 15;
         this._renderFrame(now, false);
@@ -1843,6 +1846,7 @@ export class Game {
 
   stop() {
     this._running = false;
+    this.rapBus?.dispose();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();

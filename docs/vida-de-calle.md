@@ -58,7 +58,7 @@ La botella vacía de la basura ahora se usa: con lluvia fuerte (intensidad 0,35 
 
 ## Transporte
 
-Torniquetes en el Portal del Centro (TransMilenio) y en las estaciones del Metro de la Calle 72 y la Calle 26, en el separador bajo el viaducto. La ventana deja elegir pagar el pasaje ($ 3.200) o colarse: gratis, pero lo pillan el 20 % de las veces, y un 12 % más por cada nivel de fichado; si lo pillan, no viaja, pierde ánimo y sube un nivel de fichado. Se puede pedir plata en el vagón (con mal olor nadie da). El viaje funde a negro, adelanta el reloj según la distancia, deja al jugador al lado del torniquete de llegada y trae a El Chato.
+Torniquetes en el Portal del Centro (TransMilenio) y en las estaciones del Metro de la Calle 72 y la Calle 26, en el separador bajo el viaducto. La ventana deja elegir pagar el pasaje ($ 3.200) o colarse: gratis, pero lo pillan el 20 % de las veces, y un 12 % más por cada nivel de fichado; si lo pillan, no viaja, pierde ánimo y sube un nivel de fichado. Se puede pedir plata en el vagón (con mal olor nadie da) o rapear: un minijuego de ritmo en el que la gente da según cómo rime (ver [rap-en-el-bus.md](rap-en-el-bus.md)). El viaje funde a negro, adelanta el reloj según la distancia, deja al jugador al lado del torniquete de llegada y trae a El Chato.
 
 ## Hogar de paso
 

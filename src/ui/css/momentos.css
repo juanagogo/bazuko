@@ -260,3 +260,115 @@ body.voces #hud-dock { translate: 4px -3px; rotate: -.35deg; }
   background: radial-gradient(circle at 50% 50%, transparent 65%, rgba(6, 10, 16, .38) 100%);
 }
 body.night-mode .cinematic-vignette { background: radial-gradient(circle at 50% 50%, transparent 48%, rgba(4, 7, 12, .52) 100%); }
+
+/* ---------- el rap en el vagón (RapEnElBus.js) ----------
+   Sobre marcador, como la pausa: la ruta, el cartón con la letra, la barra del cosquilleo y la gente del vagón.
+   La marca cruza la barra una vez por compás (0,38 Hz); nada más se mueve y nada parpadea. */
+#rap-bus {
+  position: fixed; inset: 0; z-index: 950;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; justify-items: center; gap: 14px;
+  padding: calc(14px + var(--safe-t, 0px)) calc(16px + var(--safe-r, 0px)) calc(16px + var(--safe-b, 0px)) calc(16px + var(--safe-l, 0px));
+  background: var(--marcador); color: var(--cinta);
+  touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden;
+}
+#rap-bus[hidden], #rap-bus [hidden] { display: none !important; }
+body:has(#rap-bus:not([hidden])) > .loot-toast { display: none; }
+.rap__cabeza { width: 100%; display: flex; justify-content: center; }
+.rap__ruta { margin: 0; padding: 6px 16px 8px; font-weight: 800; font-size: 18px; line-height: 1.1; text-align: center; }
+
+/* El cartón con la letra: la línea del compás arriba, la que viene abajo. */
+.rap__escena {
+  align-self: center; width: min(1100px, 100%); max-height: 100%; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 22px 16px; text-align: center;
+}
+.rap__linea {
+  margin: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: .1em .32em;
+  font-weight: 800; font-size: clamp(26px, 4.2vw, 54px); line-height: 1.12;
+}
+.rap__pedazo { font-weight: 400; color: color-mix(in srgb, var(--marcador) 42%, transparent); }
+.rap__pedazo.is-dicho { font-weight: 800; color: var(--marcador); }
+.rap__pedazo.is-justo { font-size: 1.06em; }
+.rap__pedazo.is-trabado { font-weight: 400; color: var(--marcador); }
+.rap__trabada { font-size: .62em; font-weight: 800; }
+.rap__regla { width: min(520px, 80%); margin: 2px 0; }
+.rap__siguiente { margin: 0; font-weight: 400; font-size: clamp(17px, 1.9vw, 24px); line-height: 1.15; color: color-mix(in srgb, var(--marcador) 70%, transparent); }
+
+/* La barra: la del cosquilleo, con un trazo negro por golpe. */
+.rap__barra { width: min(640px, 100%); padding: 10px 14px 9px; }
+.rap__pista { position: relative; height: 34px; overflow: hidden; background: rgba(20, 17, 12, .13); box-shadow: inset 0 0 0 1.5px var(--marcador); }
+.rap__zona { position: absolute; top: 0; bottom: 0; background: var(--marcador); }
+.rap__zona.is-justo, .rap__zona.is-bien { display: grid; place-items: center; color: var(--cinta); font-weight: 800; font-size: 20px; line-height: 1; }
+.rap__zona.is-justo::after, .rap__zona.is-bien::after { content: '\2713'; }
+.rap__zona.is-bien { opacity: .7; }
+.rap__zona.is-fuera { background: var(--m-tachon) center / 100% 70% no-repeat; box-shadow: inset 0 0 0 1.5px var(--marcador); }
+.rap__marca { position: absolute; top: -2px; bottom: -2px; width: 8px; transform: translateX(-50%); background: var(--rojo); box-shadow: 0 0 0 2px var(--cinta); }
+.rap__ayuda { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 7px; margin: 7px 0 0; font-weight: 800; font-size: 17px; line-height: 1.1; text-align: center; }
+.rap__ayuda kbd { font-size: 14px; }
+
+/* La gente del vagón: cinco cartones con su dibujo, sus ganas (masa) y lo que hace. */
+.rap__gente { list-style: none; margin: 0; padding: 0; width: min(1100px, 100%); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.rap__pasajero {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "dibujo nombre" "medidor medidor" "gesto gesto";
+  align-items: center; gap: 5px 8px; padding: 8px 10px 9px; min-width: 0;
+}
+.rap__pasajero > .picto { grid-area: dibujo; }
+.rap__nombre { grid-area: nombre; min-width: 0; font-weight: 800; font-size: 15px; line-height: 1.05; }
+.rap__medidor { grid-area: medidor; display: block; height: 12px; box-shadow: inset 0 0 0 1.5px var(--marcador); }
+.rap__interes { display: block; height: 100%; width: 50%; }
+.rap__gesto { grid-area: gesto; min-height: 2.3em; font-size: 15px; line-height: 1.15; }
+
+/* La cuenta: cómo me fue, lo que dijo cada uno y lo que me hice. */
+.rap__cuenta {
+  grid-row: 2 / -1; align-self: stretch; width: min(820px, 100%); min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 4px;
+}
+.rap__grito { margin: 4px 0 0; text-align: center; }
+.rap__veredicto { margin: 0; font-weight: 800; font-size: 22px; line-height: 1.15; text-align: center; }
+.rap__olor { margin: 0; font-size: 17px; line-height: 1.15; text-align: center; }
+.rap__filas { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; gap: 8px; }
+.rap__fila { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 14px 9px; }
+.rap__fila-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rap__fila-texto strong { font-size: 16px; line-height: 1.1; }
+.rap__dice, .rap__hace { font-size: 17px; line-height: 1.15; }
+.rap__pesos { font-weight: 800; font-size: 22px; white-space: nowrap; }
+.rap__pesos.is-billete { font-size: 26px; }
+.rap__total { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 2px 14px; padding: 8px 18px 10px; }
+.rap__total-texto { font-weight: 800; font-size: 22px; }
+.rap__plata { font-size: var(--letra-plata); line-height: 1; }
+.rap__efectos { flex-basis: 100%; text-align: center; font-size: 16px; }
+.rap__seguir { flex: none; font-size: 24px; min-height: 52px; padding: 8px 26px; }
+/* Con pantalla bajita la lista se desplaza, pero el verbo queda siempre a la vista, abajo. */
+.rap__cuenta > .rap__seguir { position: sticky; bottom: 2px; z-index: 1; }
+
+/* Angosto: la gente queda en dibujo y ganas; lo que hace sale en la cuenta. */
+@media (max-width: 760px) {
+  #rap-bus { gap: 10px; padding-left: calc(10px + var(--safe-l, 0px)); padding-right: calc(10px + var(--safe-r, 0px)); }
+  .rap__ruta { font-size: 16px; }
+  .rap__escena { padding: 14px 14px 12px; }
+  .rap__gente { gap: 6px; }
+  .rap__pasajero { grid-template-columns: minmax(0, 1fr); grid-template-areas: "dibujo" "medidor"; justify-items: center; padding: 6px 6px 7px; }
+  .rap__pasajero > .rap__medidor { width: 100%; }
+  .rap__nombre, .rap__gesto { display: none; }
+  .rap__fila { padding: 7px 10px 8px; gap: 8px; }
+}
+/* Acostado y bajito: la letra y la barra mandan; la gente se recoge a una tira. */
+@media (max-height: 500px) {
+  #rap-bus { gap: 8px; padding-top: calc(8px + var(--safe-t, 0px)); padding-bottom: calc(8px + var(--safe-b, 0px)); }
+  .rap__ruta { font-size: 15px; padding: 4px 12px 6px; }
+  .rap__escena { padding: 10px 16px 8px; gap: 6px; }
+  .rap__linea { font-size: clamp(22px, 3.4vw, 36px); }
+  .rap__siguiente { font-size: 16px; }
+  .rap__barra { padding: 7px 12px 7px; }
+  .rap__pista { height: 28px; }
+  .rap__ayuda { font-size: 15px; margin-top: 5px; }
+  .rap__pasajero { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "dibujo medidor"; padding: 5px 8px; }
+  .rap__nombre, .rap__gesto { display: none; }
+  .rap__grito { font-size: 30px; }
+  .rap__plata { font-size: 34px; }
+  .rap__cuenta { gap: 8px; }
+  .rap__fila { padding: 5px 12px 6px; }
+  .rap__dice, .rap__hace { font-size: 16px; }
+  .rap__veredicto { font-size: 19px; }
+  .rap__seguir { min-height: 46px; font-size: 21px; }
+}
+body.tactil .rap__pista { height: 44px; }
