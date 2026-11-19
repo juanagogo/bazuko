@@ -216,7 +216,9 @@ export function brick(seed = 3) {
 }
 
 const WALLS = ['#c9a46a', '#b8695a', '#7f9aa8', '#d8c9a3', '#8fa37a', '#c27f4a', '#a7a29a', '#b58fa8', '#d2b48c', '#6d8c9e'];
-const SMALL_SIGNS = ['SE ARRIENDA', 'SE VENDE', 'MINUTOS', 'RECARGAS', 'CERRAJERÍA', 'MODISTERÍA', 'SE HACEN UÑAS', 'FOTOCOPIAS'];
+// Avisos que valen para cualquier local: el oficio lo dice su rótulo, no la persiana.
+const SMALL_SIGNS = ['SE ARRIENDA', 'SE VENDE', 'SE ARRIENDA LOCAL', 'GARAJE · NO PARQUEAR', 'TIMBRE AL LADO', 'HOY NO FÍO', 'SE NECESITA AYUDANTE', 'INF. 555 0147'];
+const SHUTTERS = ['#868a82', '#5f7d64', '#58748c', '#8f5345', '#a8925a', '#7d8078', '#6f7f86'];
 const TAGS = ['LUZ', 'ZONA 7', 'RBQ', 'LA 33', 'PARCE', 'ÑERO', 'CALLE'];
 
 /**
@@ -391,9 +393,16 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
   }
 
   if (shopFront) {
-    // Zócalo protector, persianas enrollables y avisos de los oficios del barrio.
+    // Zócalo pintado hasta la cintura, persianas enrollables con su óxido y avisos sueltos del barrio.
     const y0 = h - fh;
-    x.fillStyle = palette.plinth; x.fillRect(0, h - fh * .16, w, fh * .16);
+    x.fillStyle = palette.plinth; x.fillRect(0, h - fh * .3, w, fh * .3);
+    x.fillStyle = 'rgba(0,0,0,.2)'; x.fillRect(0, h - fh * .3, w, Math.max(1, pxPerM * .03));
+    // Pintura caída en el borde del zócalo y abajo, donde salpica la calle.
+    for (let i = 0; i < w / 5; i++) {
+      x.fillStyle = r() < .5 ? 'rgba(176,168,150,.7)' : 'rgba(96,88,74,.55)';
+      const high = r() < .45;
+      x.fillRect(r() * w, high ? h - fh * .3 - 2 + r() * 5 : h - r() * fh * .12, 1 + r() * pxPerM * .12, 1 + r() * pxPerM * .07);
+    }
     const doors = Math.max(1, Math.round(width / 4.2));
     const dw = w / doors;
     for (let d = 0; d < doors; d++) {
@@ -402,30 +411,52 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
       const dy = y0 + fh * 0.18;
       const dh = fh * 0.82;
       x.fillStyle = palette.trim; x.fillRect(dx - 2, dy - 2, ddw + 4, dh + 2);
-      x.fillStyle = pick(r, [palette.metal, '#858981', '#888073', '#727b72']);
-      x.fillRect(dx, dy, ddw, dh);
-      const slat = Math.max(3, pxPerM * .16);
-      for (let l = dy; l < dy + dh; l += slat) {
-        x.fillStyle = 'rgba(44,47,43,.25)'; x.fillRect(dx, l, ddw, 1);
-        x.fillStyle = 'rgba(223,218,199,.17)'; x.fillRect(dx, l + 1, ddw, 1);
+      const walled = ruin && r() < .3;
+      if (walled) {
+        // Local tapiado: en El Cartucho muchos ya no abren.
+        brickWall(x, r, dx, dy, ddw, dh, pxPerM, xb, xr);
+        x.fillStyle = 'rgba(120,116,104,.35)'; x.fillRect(dx, dy, ddw, dh);
+      } else {
+        x.fillStyle = pick(r, ruin ? [palette.metal, '#7d7468', '#77604f', '#6c7068'] : [palette.metal, ...SHUTTERS]);
+        x.fillRect(dx, dy, ddw, dh);
+        const slat = Math.max(3, pxPerM * .16);
+        for (let l = dy; l < dy + dh; l += slat) {
+          x.fillStyle = 'rgba(44,47,43,.25)'; x.fillRect(dx, l, ddw, 1);
+          x.fillStyle = 'rgba(223,218,199,.17)'; x.fillRect(dx, l + 1, ddw, 1);
+          // Lamas cambiadas o abolladas: ninguna persiana vieja es de un solo tono.
+          if (r() < .1) { x.fillStyle = r() < .5 ? 'rgba(255,250,235,.1)' : 'rgba(0,0,0,.12)'; x.fillRect(dx, l, ddw, slat); }
+        }
+        const rust = x.createLinearGradient(0, dy + dh * .5, 0, dy + dh);
+        rust.addColorStop(0, 'rgba(110,66,36,0)'); rust.addColorStop(1, ruin ? 'rgba(110,66,36,.75)' : 'rgba(110,66,36,.45)');
+        x.fillStyle = rust; x.fillRect(dx, dy + dh * .5, ddw, dh * .5);
+        for (let i = 0; i < (ruin ? 60 : 26); i++) {
+          x.fillStyle = 'rgba(112,64,34,.4)';
+          x.fillRect(dx + r() * ddw, dy + dh * (.35 + r() * .65), 1 + r() * pxPerM * .06, 1 + r() * pxPerM * .1);
+        }
+        x.fillStyle = 'rgba(28,28,26,.5)'; x.fillRect(dx, dy + dh - pxPerM * .12, ddw, pxPerM * .12);
+        x.fillRect(dx, dy, Math.max(1, pxPerM * .05), dh); x.fillRect(dx + ddw - Math.max(1, pxPerM * .05), dy, Math.max(1, pxPerM * .05), dh);
+        x.fillStyle = '#b9a45a'; x.fillRect(dx + ddw / 2 - pxPerM * .04, dy + dh - pxPerM * .2, pxPerM * .08, pxPerM * .1);
+
+        // Persianas metálicas comerciales: satinadas con relieve horizontal
+        xr.fillStyle = '#a8a8a8';
+        xr.fillRect(dx, dy, ddw, dh);
+        xb.fillStyle = '#888888';
+        xb.fillRect(dx, dy, ddw, dh);
+        for (let l = dy; l < dy + dh; l += slat) {
+          xb.fillStyle = '#7b7b7b'; xb.fillRect(dx, l, ddw, 1);
+        }
       }
 
-      // Persianas metálicas comerciales: satinadas con relieve horizontal
-      xr.fillStyle = '#a8a8a8';
-      xr.fillRect(dx, dy, ddw, dh);
-      xb.fillStyle = '#888888';
-      xb.fillRect(dx, dy, ddw, dh);
-      for (let l = dy; l < dy + dh; l += slat) {
-        xb.fillStyle = '#7b7b7b'; xb.fillRect(dx, l, ddw, 1);
+      if (r() < (ruin ? .35 : .6)) {
+        x.fillStyle = palette.signBackground; x.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
+        x.fillStyle = palette.signText; x.font = `700 ${Math.max(6, Math.round(fh * .085))}px Arial, sans-serif`;
+        x.textAlign = 'center'; x.textBaseline = 'middle';
+        x.fillText(pick(r, SMALL_SIGNS), dx + ddw / 2, y0 + fh * .095, ddw * .9);
+        x.fillStyle = 'rgba(70,60,46,.2)'; x.fillRect(dx, y0 + fh * .11, ddw, fh * .04);
+        // Las letras solo pertenecen al albedo; el soporte del aviso es casi plano.
+        xb.fillStyle = '#888888'; xb.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
+        xr.fillStyle = '#c4c4c4'; xr.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
       }
-
-      x.fillStyle = palette.signBackground; x.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
-      x.fillStyle = palette.signText; x.font = `700 ${Math.max(6, Math.round(fh * .085))}px Arial, sans-serif`;
-      x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText(pick(r, SMALL_SIGNS), dx + ddw / 2, y0 + fh * .095, ddw * .9);
-      // Las letras solo pertenecen al albedo; el soporte del aviso es casi plano.
-      xb.fillStyle = '#888888'; xb.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
-      xr.fillStyle = '#c4c4c4'; xr.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
 
       if (r() < (ruin ? .8 : .35)) {
         x.save();
@@ -437,6 +468,7 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
         x.rotate((r() - 0.5) * 0.3);
         x.textAlign = 'center';
         const tag = pick(r, TAGS);
+        x.globalAlpha = .8;
         x.strokeText(tag, 0, 0);
         x.fillText(tag, 0, 0);
         x.restore();

@@ -27,6 +27,7 @@ import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
 import { signTextAtlas, atlasPlane, SignTextMaterial } from '../../utils/signAtlas.js';
+import { localDelSolar, AVISOS_GRANDES } from '../bogota/Locales.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
@@ -94,13 +95,6 @@ export const SHELTER_RESPAWN = Object.freeze({ x: 112.98, z: 97.84 });
 const CARTUCHO = { x0: 8, x1: 21, z0: 14, z1: 29 };
 /** Mapas de fachada que no dependen del barrio. */
 const SHARED_FACADE_MAPS = ['emissiveMap', 'bumpMap', 'roughnessMap'];
-
-const SHOP_NAMES = [
-  ['DROGUERÍA', 'SALUD Y VIDA'], ['PANADERÍA', 'EL TRIGAL'], ['CIGARRERÍA', 'LA 10'], ['ASADERO', 'POLLO DORADO'],
-  ['MISCELÁNEA', 'TODO A MIL'], ['COMPRAVENTA', 'EL CENTAVO'], ['RESIDENCIAS', 'EL DORADO'], ['BILLARES', 'LA BOLA 8'],
-  ['TIENDA', 'DONDE PACHO'], ['FERRETERÍA', 'EL TORNILLO'], ['SASTRERÍA', 'ARREGLOS'], ['CAFETERÍA', 'TINTO Y PAN'],
-  ['CHATARRERÍA', 'COMPRAMOS'], ['MINUTOS', 'A TODO OPERADOR'], ['LAVANDERÍA', 'AL INSTANTE'], ['PAPELERÍA', 'FOTOCOPIAS']
-];
 
 // Del tablero del puente al piso, para que quepa una persona debajo: la losa mide .71 m.
 const DECK_HEADROOM = 2.8;
@@ -273,6 +267,7 @@ export class Bogota {
         Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) > 6
     }));
 
+    if (collisions) this._quitarBanderasContraSolidos(collisions.colliders);
     this._mergeStatic();
     const metroTrain = metro.userData.train;
     this.group.add(metroTrain);
@@ -868,11 +863,11 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
-  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  /** Texto de todos los avisos de local en un atlas: los 54 de los avisos grandes, con la letra de su oficio. */
   _shopSignAtlas() {
     if (this._shopSigns !== undefined) return this._shopSigns;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
-    const entries = SHOP_NAMES.flatMap(([title, sub]) => ['#26302e', '#fff3da'].map(fg => ({ title, sub, fg })));
+    const entries = AVISOS_GRANDES.map(({ oficio, nombre }) => ({ title: oficio.titulo, sub: nombre, fg: oficio.tinta, accent: oficio.acento }));
     const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
     return (this._shopSigns = { cells, material: new SignTextMaterial({ map: texture }) });
   }
@@ -896,7 +891,6 @@ export class Bogota {
     const houseSeed = (Math.imul(x0 + 17, 73856093) ^ Math.imul(z0 + 31, 19349663)
       ^ Math.imul(tiles.length, 83492791) ^ Math.imul(depth, 2654435761) ^ Math.imul(face + 1, 97531)) >>> 0;
     const random = TX.rng(houseSeed);
-    const choose = values => values[Math.floor(random() * values.length)];
     const floors = skylineFloors(x0, z0, ruin, random());
     const h = floors * 3;
     const style = ruin ? 'ruina' : random() < 0.55 ? 'ladrillo' : 'pintada';
@@ -960,23 +954,21 @@ export class Bogota {
     const fz = (W(z0) + W(z1)) / 2 + dz * T / 2;
     const yaw = Math.atan2(dx, dz);
 
-    // aviso de local en el primer piso
-    if (!ruin && random() < 0.55) {
-      const shopName = choose(SHOP_NAMES);
-      const [title, sub] = shopName;
-      const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
-      signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
-      const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const fg = luminance > .4 ? 0 : 1;
-      const bg = `#${signColor.getHexString()}`, signW = Math.min(widthM * 0.85, 3.6);
+    // aviso de local en el primer piso: el oficio sale del solar, no del sorteo
+    const local = localDelSolar({ seed: houseSeed, paso: alongX ? x0 : z0, x: cx, z: cz });
+    local.conAviso = !ruin && random() < 0.55;
+    if (local.conAviso) {
+      // Los dos sorteos del nombre y el color de antes se siguen gastando: balcones y tejados no se mueven.
+      random(); random();
+      const signW = Math.min(widthM * 0.85, 3.6);
       // El texto sale del atlas compartido y el fondo va en los vértices del plano. Sin lienzo (las
       // pruebas en Node) o sin sitio en el atlas, el aviso lleva su propia textura.
       const atlas = this._shopSignAtlas();
-      const cell = atlas?.cells[SHOP_NAMES.indexOf(shopName) * 2 + fg];
-      const map = cell ? null : signTexture({ title, sub, bg, fg: fg ? '#fff3da' : '#26302e', w: 768, h: 192 });
+      const cell = atlas?.cells[AVISOS_GRANDES.findIndex(e => e.oficio.id === local.id && e.nombre === local.nombre)];
+      const map = cell ? null : signTexture({ title: local.titulo, sub: local.nombre, bg: local.fondo, fg: local.tinta, accent: local.acento, w: 768, h: 192 });
       if (cell || map) {
         const sign = cell
-          ? new THREE.Mesh(atlasPlane(signW, signW / 4, cell, new THREE.Color(bg)), atlas.material)
+          ? new THREE.Mesh(atlasPlane(signW, signW / 4, cell, new THREE.Color(local.fondo)), atlas.material)
           : new THREE.Mesh(new THREE.PlaneGeometry(signW, signW / 4), new THREE.MeshBasicMaterial({ map }));
         sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
         sign.rotation.y = yaw;
@@ -1004,11 +996,38 @@ export class Bogota {
       shell.walls.get(face).add(bal);
     }
     addBuildingDetails({ shell, width: sx, depth: sz, height: h, floors, face,
-      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false });
+      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false, local });
     const building = this.buildingVisibility.register(shell);
     for (const part of building.parts) for (const material of part.materials) {
       if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
     }
+  }
+
+  /**
+   * Un aviso de bandera que toca un sólido de la ciudad no se cuelga. Los sólidos nacen después de las casas, así que
+   * se recoge al final: sus caras se pliegan en un punto y la malla de la fachada queda con los mismos vértices.
+   */
+  _quitarBanderasContraSolidos(colliders) {
+    const caja = new THREE.Box3(), punto = new THREE.Vector3();
+    let quitadas = 0;
+    for (const { root } of this.buildingVisibility.buildings) root.traverse(malla => {
+      const bandera = malla.userData.bandera;
+      if (!bandera) return;
+      malla.updateWorldMatrix(true, false);
+      const posicion = malla.geometry.attributes.position;
+      caja.makeEmpty();
+      for (let i = bandera.desde; i < bandera.hasta; i++) caja.expandByPoint(punto.fromBufferAttribute(posicion, i).applyMatrix4(malla.matrixWorld));
+      // La bandera nace al ras de la caja de su propia casa: rozarla no cuenta, meterse 3 cm en un sólido sí.
+      caja.expandByScalar(-.03);
+      if (!colliders.some(solido => solido.box.intersectsBox(caja))) return;
+      punto.fromBufferAttribute(posicion, bandera.desde);
+      for (let i = bandera.desde; i < bandera.hasta; i++) posicion.setXYZ(i, punto.x, punto.y, punto.z);
+      posicion.needsUpdate = true;
+      malla.geometry.computeBoundingBox(); malla.geometry.computeBoundingSphere();
+      delete malla.userData.bandera;
+      quitadas++;
+    });
+    return quitadas;
   }
 
   /** Colisiones: tramos horizontales de tiles sólidos unidos en una caja */

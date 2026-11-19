@@ -547,6 +547,16 @@ export function buildShopHouse(lot, m) {
       f.quad(m.detail, [u - aw / 2, 2.32, 1.2], [u + aw / 2, 2.32, 1.2], [u + aw / 2, 2.7, .05], [u - aw / 2, 2.7, .05], awning);
       f.panel(m.detail, u, 2.12, 1.2, aw, .2, awning);
     }
+    // Lo que el local saca al andén, pegado al muro y con azar propio: guacales y bultos, o materas.
+    const outside = rng((lot.seed ^ Math.imul(i + 1, 0x51ab3)) >>> 0), open = ALL_FACES & ~FACES.bottom, pu = u + w / 2 - .34;
+    if (sign === 'signTinto' || sign === 'signChicha' || sign === 'signPan') {
+      f.box(m.detail, pu, SIDEWALK_Y, .2, .56, .3, .36, 'woodLight', open);
+      f.box(m.detail, pu, SIDEWALK_Y + .3, .2, .5, .05, .3, outside() < .5 ? 'fruit' : 'produce', open);
+      if (outside() < .6) f.box(m.detail, pu - .62, SIDEWALK_Y, .19, .5, .24, .34, 'burlap', open);
+    } else for (const du of outside() < .6 ? [0, -.5] : [0]) {
+      f.box(m.detail, pu + du, SIDEWALK_Y, .2, .32, .3, .32, 'terracotta', open);
+      f.box(m.detail, pu + du, SIDEWALK_Y + .3, .2, .36, .3 + outside() * .2, .36, 'hedge', open);
+    }
   }
   const bays = Math.max(1, Math.floor(width / 2.4));
   for (let floor = 1; floor < floors; floor++) {
