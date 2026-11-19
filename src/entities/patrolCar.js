@@ -4,12 +4,10 @@
 // Todo cuelga de la carrocería suspendida, así que se mece con ella. Geometrías por modelo y lado, y materiales, se
 // comparten entre patrullas; nada de esto se libera al desechar un carro.
 import * as THREE from 'three';
+import { SKIN_ALBEDO } from '../character/look.js';
+import { PATROL_COLORS, patrolSkinIndex } from '../character/patrolUniform.js';
 import { CAR_MODELS } from '../world/bogota/carModels.js';
 import { getCarBody, getDriverGeometry } from '../world/bogota/VehicleBody.js';
-
-/** Uniforme de las patrullas de cuadrante: verde oliva, chaleco reflectivo verde limón y gorra. */
-export const PATROL_COLORS = { chaleco: '#b9d531', uniforme: '#4b5a2a', gorra: '#3a4329', bota: '#1b1b1c' };
-const SKINS = ['#e0b08a', '#c68a5e', '#9a6440', '#6e4529'];
 
 const DOOR_OPEN = 1.12;   // rad: la puerta abierta queda a unos 64°
 const DOOR_TIME = .35;    // s en abrir o cerrar
@@ -135,7 +133,7 @@ export function seatLift(model, anchor, height) {
  * ajusta lo que se ve sentado al detalle del carro.
  */
 export class PatrolCar {
-  constructor(car, random = Math.random) {
+  constructor(car, crewIndex = 0) {
     this.car = car;
     const v = car.vehicle, parent = v.bodyVisual ?? car.group, m = shared();
     this.anchor = (v.driverAnchor ?? new THREE.Vector3(.2, 0, -.38)).clone();
@@ -164,12 +162,17 @@ export class PatrolCar {
       this.doors[side] = { pivot, hole, open: 0, wanted: false, fast: false, bounce: 0 };
     }
     // Los dos van de uniforme: la figura sentada del conductor se viste de agente y se suma el acompañante.
-    const skin = () => SKINS[Math.floor(random() * SKINS.length)];
-    const geometry = () => getDriverGeometry(PATROL_COLORS.chaleco, skin(), PATROL_COLORS.gorra);
-    if (car.driver?.children[0]) car.driver.children[0].geometry = geometry();
+    const geometry = passenger => {
+      const index = crewIndex * 2 + Number(passenger);
+      const skin = new THREE.Color().setRGB(...SKIN_ALBEDO[patrolSkinIndex(index)]);
+      return getDriverGeometry(PATROL_COLORS.uniforme, `#${skin.getHexString()}`, PATROL_COLORS.gorra, {
+        color: passenger ? PATROL_COLORS.chaleco : PATROL_COLORS.chalecoConductor, tape: PATROL_COLORS.cinta, passenger
+      });
+    };
+    if (car.driver?.children[0]) car.driver.children[0].geometry = geometry(false);
     this.passenger = new THREE.Group();
     this.passenger.name = 'Acompañante';
-    const seated = new THREE.Mesh(geometry(), v.trimMaterial ?? m.inner);
+    const seated = new THREE.Mesh(geometry(true), v.trimMaterial ?? m.inner);
     seated.name = 'Cuerpo del acompañante';
     seated.position.y = this.height;
     this.passenger.add(seated);

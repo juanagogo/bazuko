@@ -188,6 +188,24 @@ test('el arma se gasta con cada golpe, avisa al quedar poca y al final se parte'
   assert.deepEqual(wearWeapon(inv, 'punos'), {}, 'los puños no se gastan');
 });
 
+test('la defensa personal gasta el arma y la fama solo cuenta las víctimas ajenas a la agresión', () => {
+  const player = { position: { x: 0, z: 0 } }, agresor = {}, civil = { isVendor: true };
+  const desgaste = [], acciones = [];
+  const calle = Object.assign(Object.create(StreetLife.prototype), {
+    game: { player }, nearVendor: () => true,
+    _wear: arma => desgaste.push(arma), _fama: accion => acciones.push(accion)
+  });
+  const resultado = { target: agresor, wasAggressor: true };
+  calle._onFight({ attacker: player, weapon: 'cuchillo', hits: [agresor], results: [resultado] });
+  calle._onFight({ attacker: agresor, weapon: 'cuchillo', hits: [civil] });
+  assert.deepEqual(acciones, []);
+  assert.deepEqual(desgaste, ['cuchillo']);
+  calle._onFight({ attacker: player, weapon: 'cuchillo', hits: [agresor, civil],
+    results: [resultado, { target: civil, wasAggressor: false }] });
+  assert.deepEqual(acciones, ['pegarVendedor']);
+  assert.equal(desgaste.length, 2);
+});
+
 test('la fama sube y baja por lo que hago, y cada nivel cambia algo que se ve', () => {
   const fama = new Reputation();
   assert.equal(famaNivel(fama.chazas), 'normal');

@@ -6,10 +6,10 @@
 import * as THREE from 'three';
 import { Npc, NPC_COMBAT, NPC_HIT_REACTION_DURATION, NPC_LOD } from './Npc.js';
 import { DEFAULT_LOOK } from '../character/look.js';
+import { dressPatrolOfficer, PATROL_COLORS, patrolSkinIndex } from '../character/patrolUniform.js';
 import { smooth } from '../character/BodyLanguage.js';
 import { EXIT, EXIT_SECONDS, exitMotion, exitTimes, seatRise, seatSlide } from './patrolExit.js';
 import { canReachCombatTarget, hasClearCombatLine, resolveCombatWalk } from '../systems/CombatGeometry.js';
-import { PATROL_COLORS } from './patrolCar.js';
 
 export const POLICE_FOOT = {
   dismountRange: 12,     // m: con el jugador a la vista y a esta distancia, la patrulla frena para que se bajen
@@ -176,16 +176,16 @@ const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 const lerpAngle = (from, to, k) => from + wrap(to - from) * k;
 const pick = (list, random) => list[Math.floor(random() * list.length) % list.length];
 
-/** Uniforme de la Policía de cuadrante, sin insignias reales: chaleco verde limón, pantalón verde oliva, botas y gorra. */
+/** Camisa y pantalón oliva, con chaleco de patrulla y gorra en los dos modelos. */
 export function policeLook(index = 0) {
   return {
     ...DEFAULT_LOOK,
-    piel: 1 + (index * 3 + 1) % 4,
+    piel: patrolSkinIndex(index),
     desgaste: 0,
     accesorios: ['gorra'],
     real: {
-      sexo: 'hombre', edad: 'adulto', pelo: 'rapado', barba: 'ninguna', ropa: 'chaqueta', calzado: 'botas', cabeza: 'sin-sombrero',
-      tonos: { arriba: PATROL_COLORS.chaleco, abajo: PATROL_COLORS.uniforme, patron: 'liso', calzado: PATROL_COLORS.bota }
+      sexo: 'hombre', edad: 'adulto', pelo: 'rapado', barba: 'ninguna', ropa: 'camisa', calzado: 'botas', cabeza: 'sin-sombrero',
+      tonos: { arriba: PATROL_COLORS.uniforme, abajo: PATROL_COLORS.pantalon, patron: 'liso' }
     }
   };
 }
@@ -193,20 +193,25 @@ export function policeLook(index = 0) {
 export class PoliceOfficer extends Npc {
   /**
    * @param {THREE.Scene} scene
-   * @param {{ role?: 'conductor' | 'acompanante', index?: number, routes?: object, random?: () => number,
+   * @param {{ role?: 'conductor' | 'acompanante', index?: number, generation?: number, routes?: object, random?: () => number,
    *   isWalkable?: (x:number, z:number) => boolean, groundHeight?: (x:number, z:number, y?:number) => number }} opts
    */
-  constructor(scene, { role = 'acompanante', index = 0, routes = null, random = Math.random, ...opts } = {}) {
+  constructor(scene, { role = 'acompanante', index = 0, generation = 0, routes = null, random = Math.random, ...opts } = {}) {
     super(scene, new THREE.Vector3(0, -50, 0), { ...opts, speed: POLICE_FOOT.sprintSpeed, look: policeLook(index) });
     this.collisions = opts.collisions ?? null;
     this.getWaterInfo = opts.getWaterInfo ?? null;
     this.routes = routes;
     this.random = random;
     this.role = role;
+    this.slot = index;
+    this.generation = generation;
+    this.stableId = `policia:${index}:${generation}`;
+    const voiceIndex = Math.floor(index / 2) + Number(role === 'acompanante') + generation;
+    this._voz = voiceIndex % 2 === 0 ? 'policia_a' : 'policia_b';
     this.seatSide = role === 'conductor' ? -1 : 1;
     this.doorSide = this.seatSide;
     this.flank = 0;
-    this.state = 'dentro';   // dentro | bajando | persecucion | busqueda | regreso | subiendo
+    this.state = 'dentro';   // dentro | bajando | persecucion | busqueda | regreso | subiendo | dead
     this.car = null;
     this.fit = null;
     this.timer = 0;
@@ -287,7 +292,7 @@ export class PoliceOfficer extends Npc {
     this.searchPoint = new THREE.Vector3();
   }
 
-  get out() { return this.state !== 'dentro'; }
+  get out() { return !this.isDead && this.state !== 'dentro'; }
 
   /**
    * Afuera se anima aunque el jugador esté lejos: el LOD de los NPC congela la pose a más de `animStop` m y el agente que
@@ -307,6 +312,7 @@ export class PoliceOfficer extends Npc {
 
   /** Con fichado 3 lleva la pistola en la mano derecha; cada modelo (lejano o cercano) la recibe al mostrarse. */
   setArmed(armed) {
+    if (armed && this.isDead) return;
     if (this.armed === !!armed) return;
     this.armed = !!armed;
     this.character?.setWeapon?.(this.armed ? 'pistola' : null);
@@ -314,18 +320,14 @@ export class PoliceOfficer extends Npc {
 
   _show(char) {
     char.setWeapon?.(this.armed ? 'pistola' : null);
-    this._tintCap(char);
+    dressPatrolOfficer(char, this.role);
     super._show(char);
   }
 
-  /** La gorra del catálogo es negra: la del uniforme va del verde del pantalón. Su material es de cada persona. */
-  _tintCap(char) {
-    if (!char?.group || char.group.userData.policeCap) return;
-    char.group.traverse(object => {
-      if (object.name !== 'prop-gorra') return;
-      char.group.userData.policeCap = true;
-      object.traverse(mesh => mesh.material?.color?.set(PATROL_COLORS.gorra));
-    });
+  async preload() {
+    await super.preload();
+    // El modelo completo también debe pasar vestido a la compilación gráfica inicial.
+    dressPatrolOfficer(this.fullChar, this.role);
   }
 
   /** El personaje lo lleva PoliceFootSystem con `think`; el Npc base no camina. */
@@ -351,6 +353,7 @@ export class PoliceOfficer extends Npc {
    * en una persecución se bajan de afán (ver `exitSeconds`).
    */
   startExit(fit, side, face = null, seconds = EXIT_SECONDS) {
+    if (this.isDead || this._disposed) return;
     this.fit = fit;
     this.car = fit.car;
     this.doorSide = side;
@@ -368,7 +371,6 @@ export class PoliceOfficer extends Npc {
     // Arranca sentado de una vez: la postura de sentado no entra de a poco desde de pie.
     this.character?.snapPose?.();
     this._poseStale = true;
-    this.health = this.maxHealth;
     this.distance = Math.hypot((face?.x ?? this._door.x) - this._door.x, (face?.z ?? this._door.z) - this._door.z);
     this.sprintLeft = POLICE_FOOT.sprintTime;
     this.runTime = 0;
@@ -498,6 +500,7 @@ export class PoliceOfficer extends Npc {
 
   /** Empieza a subirse por la puerta por la que se bajó (que la patrulla ya abre). */
   startBoard() {
+    if (this.isDead || this._disposed) return;
     this.state = 'subiendo';
     this.timer = 0;
     this.moving = false;
@@ -536,6 +539,7 @@ export class PoliceOfficer extends Npc {
 
   /** Adentro: desaparece de la calle (la figura sentada de la patrulla lo reemplaza). */
   enterCar() {
+    if (this.isDead || this._disposed) return;
     this.state = 'dentro';
     this.moving = false;
     this.poseParams = {};
@@ -826,7 +830,7 @@ export class PoliceOfficer extends Npc {
   }
 
   _think(dt, ctx) {
-    if (dt <= 0 || this.state === 'dentro') { this.moving = false; return null; }
+    if (dt <= 0 || !this.out) { this.moving = false; return null; }
     if (this._benchFade > 0) this._benchFade = Math.max(0, this._benchFade - dt);
     if (this.state === 'bajando') return this._updateExit(dt, ctx.player) ? 'fuera' : null;
     if (this.state === 'subiendo') return this._updateBoard(dt) ? 'adentro' : null;
@@ -1126,6 +1130,7 @@ export class PoliceOfficer extends Npc {
 
   /** Va al último punto donde lo vio y mira alrededor. */
   startSearch(point) {
+    if (this.isDead || this._disposed) return;
     this.state = 'busqueda';
     this.searchPhase = 'ir';
     this.searchPoint.copy(point);
@@ -1176,7 +1181,7 @@ export class PoliceOfficer extends Npc {
 
   /** Desiste: camina de vuelta a la patrulla. Con `reason` dice por qué (ver `GIVE_UP_LINES`). */
   startReturn(reason = null) {
-    if (this.state === 'dentro' || this.state === 'subiendo') return;
+    if (!this.out || this.state === 'subiendo') return;
     if (this.state === 'bajando') { this._returnAfterExit = true; return; }
     this.state = 'regreso';
     this.returnTimer = 0;
@@ -1359,25 +1364,40 @@ export class PoliceOfficer extends Npc {
     if (!this._canUse(this.doorSide, doorOk) || other < own - DOOR_SWITCH || (!ownClear && other < own && this._clearTo(this._door))) this.doorSide = -this.doorSide;
   }
 
-  /** Ni huye, ni suelta plata, ni queda tendido: aguanta el golpe, se queja y su compañero responde. */
-  takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, attackId = null, id = null } = {}) {
-    if (this._disposed || !this.onFoot || !Number.isFinite(damage) || damage <= 0) return false;
-    if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
+  /** El uniforme conserva su resistencia. Cada contacto aceptado cuesta salud y nunca da dinero. */
+  takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos', attackId = null, id = null } = {}) {
+    if (this._disposed || this.isDead || !this.onFoot || !Number.isFinite(damage) || damage <= 0) return false;
     if (attacker?.position && !canReachCombatTarget({ from: attacker.position, to: this.position,
       collisions: this.collisions ?? attacker._lastCollisions, getWaterInfo: this.getWaterInfo,
       fromInWater: !!attacker.isSwimming })) return false;
+    const contact = attackId ?? id;
+    if (!this._acceptAttackId(attacker, contact)) return false;
+    this.hitBy = attacker;
     let dx = dir?.x ?? 0, dz = dir?.z ?? 0;
     if (!dir && attacker?.position) { dx = this.position.x - attacker.position.x; dz = this.position.z - attacker.position.z; }
     const length = Math.hypot(dx, dz);
-    if (length > 1e-4) this._lastHit.set(dx / length, 0, dz / length);
+    if (Number.isFinite(length) && length > 1e-4) this._lastHit.set(dx / length, 0, dz / length);
     this._punchFacing = Math.atan2(-this._lastHit.x, -this._lastHit.z);
-    this.health = Math.max(40, this.health - damage * .5);
+    const previousHealth = this.health;
+    this.health = Math.max(0, previousHealth - damage * .5);
     this._hitReactionRemaining = NPC_HIT_REACTION_DURATION;
     this.staggerTimer = NPC_COMBAT.stagger;
     this._knockVel.copy(this._lastHit).multiplyScalar(Math.min(.4, Math.max(0, knockback || 0)) * 2 / NPC_COMBAT.stagger);
     this.action = 'recibirGolpe';
     this.actionProgress = 0;
     this.moving = false;
+    if (this.health === 0) {
+      const held = this._grab?.phase === 'agarre';
+      this._dropGrab();
+      this._route.length = 0;
+      this.sees = false;
+      this.distance = Infinity;
+      this.groundSpeed = 0;
+      this.setArmed(false);
+      this._dieFromHit({ attacker, weapon, attackId: contact, previousHealth, wasAggressor: this.isAggressor === true });
+      this.onHit?.(this, attacker, held);
+      return 0;
+    }
     // Golpeado se le cae el agarrón en curso, salvo que ya lo tenga agarrado.
     if (this._grab?.phase !== 'agarre') this._dropGrab();
     if (this._bubbleTimer <= 0) this.say(HIT_LINE, 2.6);

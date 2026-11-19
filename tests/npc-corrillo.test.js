@@ -5,6 +5,7 @@ import { PedestrianNavigation } from '../src/world/bogota/PedestrianNavigation.j
 import { TEMPERS } from '../src/entities/npc/temperament.js';
 import { REACT, REPORT_PHRASES } from '../src/entities/npc/awareness.js';
 import { StreetMinds, seededRandom } from '../src/entities/npc/mind.js';
+import { WitnessSystem } from '../src/systems/WitnessSystem.js';
 
 // Quién se para a mirar una pelea y cómo: el plazo según la distancia, el anillo de afuera del bravo y del avisador,
 // el indiferente que mira de paso, el reparto del arco, el tope y la calle de por medio. Peatones de verdad (Npc real,
@@ -93,6 +94,117 @@ function withReact(t, changes) {
   for (const key of Object.keys(changes)) { before[key] = REACT[key]; REACT[key] = changes[key]; }
   t.after(() => Object.assign(REACT, before));
 }
+
+test('un testigo que se asusta corta la llamada, retrocede de frente y huye', async (t) => {
+  const nav = plaza();
+  const player = { position: new THREE.Vector3(40, 0, 30) };
+  const victim = await walker([41, 0, 30], nav), witness = await walker([40, 0, 23], nav);
+  const s = scene([victim, witness]);
+  const calls = [];
+  const sys = new WitnessSystem({ world: { active: s.district }, player, traffic: { dispatchTo: p => calls.push(p) } }, { random: () => 0 });
+  t.after(() => { sys.dispose(); s.minds.dispose(); victim.dispose(); witness.dispose(); });
+  run(s, .2, player.position);
+  stand(witness, player.position); temper(witness, 'miedoso');
+  const initial = far(witness, player.position);
+  sys.report('robo', victim);
+  assert.equal(witness.witnessing, 'llamar');
+  victim._robadoTimer = 30;
+  victim.alarmedByTheft(player.position, true);
+  let recoiled = false;
+  run(s, 9, player.position, () => {
+    sys.update(1 / 30);
+    if (witness.mind.aware.reaction === 1 && far(witness, player.position) > initial + .1) {
+      assert.equal(witness.witnessing, null);
+      assert.ok(angleTo(witness, player.position) < .4);
+      recoiled = true;
+    }
+  });
+  assert.ok(recoiled, 'salió en cuanto se asustó');
+  assert.ok(far(witness, player.position) >= initial + 4);
+  assert.equal(witness._cowering, false);
+  assert.equal(witness._witnessFinished, false);
+  assert.equal(sys.calls.length, 0);
+  assert.equal(calls.length, 0, 'una llamada cortada no manda patrulla');
+});
+
+test('los testigos con celular y el corrillo comparten una pelea sin quitarse los puestos', async (t) => {
+  const nav = plaza();
+  const player = { position: new THREE.Vector3(40, 0, 30) };
+  const people = [];
+  for (let k = 0; k < 6; k++) {
+    const a = k * Math.PI / 3;
+    people.push(await walker([40 + 9 * Math.sin(a), 0, 30 + 9 * Math.cos(a)], nav, 'estudiante'));
+  }
+  const s = scene(people);
+  const sys = new WitnessSystem({ world: { active: s.district }, player }, { random: () => 0 });
+  t.after(() => { sys.dispose(); s.minds.dispose(); for (const n of people) n.dispose(); });
+  run(s, .2, player.position);
+  for (const n of people) { stand(n, player.position); temper(n, 'curioso'); }
+  const blow = fighting(12, player.position);
+  blow(0);
+  assert.equal(sys.calls.length, 1);
+  assert.equal(sys.films.length, 1);
+  assert.ok(people.every(n => n.fleeTimer === 0));
+  let most = 0;
+  run(s, 6.5, player.position, time => {
+    if (time >= 1) blow(time);
+    sys.update(1 / 30);
+    assert.ok(sys.films.length <= 1);
+    assert.ok(people.every(n => !n.witnessing || !n.mind.aware.watching));
+    most = Math.max(most, people.filter(n => inPlace(n) && far(n, player.position) >= 4 && far(n, player.position) <= 6).length);
+  });
+  assert.ok(most >= 3, `solo llegaron ${most} al arco`);
+});
+
+test('un curioso retoma el camino si pierde su ruta y deja el puesto libre si tiene que huir', async (t) => {
+  const fight = new THREE.Vector3(40, 0, 30);
+  const npc = await walker([28, 0, 30], plaza(), 'estudiante');
+  const s = scene([npc]);
+  t.after(() => { s.minds.dispose(); npc.dispose(); });
+  run(s, .2, fight);
+  stand(npc, fight); temper(npc, 'curioso');
+  const blow = fighting(12, fight);
+  const aware = npc.mind.aware;
+  let lost = false;
+  run(s, 9, fight, time => {
+    blow(time);
+    if (!lost && aware.watching && npc.target && far(npc, fight) > 8) {
+      npc.target = null; npc.route = [];
+      lost = true;
+    }
+  });
+  assert.ok(lost && inPlace(npc), 'retomó el camino hasta un puesto');
+  assert.ok(far(npc, fight) >= 4 && far(npc, fight) <= 6);
+  const sceneWatched = aware.watching;
+  npc._fleeFrom(fight);
+  run(s, .5, fight);
+  assert.equal(aware.watching, null);
+  assert.equal(sceneWatched.watchers, 0);
+  assert.equal(sceneWatched.slots | sceneWatched.slots2, 0);
+});
+
+test('el miedoso que querría mirar de lejos sale de la calzada antes de pararse', async (t) => {
+  const nav = navFrom(Array.from({ length: 30 }, () => '....rrrrr' + '.'.repeat(25)));
+  const fight = new THREE.Vector3(20, 0, 32);
+  const npc = await walker([4, 0, 28], nav, 'senora');
+  const s = scene([npc]);
+  t.after(() => { s.minds.dispose(); npc.dispose(); });
+  run(s, .03, fight);
+  temper(npc, 'miedoso');
+  npc.mind.temper.far = 1;
+  walkAlong(npc, 6, 24, 28);
+  run(s, 15, fight, () => npc.position.x < 12);
+  const road = () => nav.nodes[nav.nodeAt(npc.position.x, npc.position.z)]?.crossing;
+  assert.ok(road(), 'la pelea comienza mientras cruza, a unos 9 m');
+  let offRoad = false;
+  const blow = fighting(8, fight);
+  run(s, 6, fight, time => {
+    blow(time);
+    if (!road()) offRoad = true;
+    else assert.equal(npc.mind.aware.watching, null, 'nunca reserva su puesto mientras cruza');
+  });
+  assert.ok(offRoad, 'alcanzó el andén');
+});
 
 test('plazo según la distancia: el curioso va si a paso vivo alcanza a llegar con pelea por ver; a 15 m de una pelea larga va, y a un golpe suelto solo va el que lo tiene cerca', async () => {
   const nav = plaza(50, 30);

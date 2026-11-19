@@ -6,6 +6,7 @@
 // cómo mover el carro mientras dura la persecución (`planCar`) y la sube de una al terminar (`recall`).
 import * as THREE from 'three';
 import { PoliceOfficer, POLICE_FOOT, POLICE_GRAB_LINES, POLICE_GRAB_PLATE } from '../entities/PoliceOfficer.js';
+import { NPC_LOD } from '../entities/Npc.js';
 import { PatrolCar } from '../entities/patrolCar.js';
 import { hasClearCombatLine } from './CombatGeometry.js';
 import { POLICE_CATCH_RANGE, POLICE_GIVE_UP_RANGE, TILE_SIZE } from '../utils/constants.js';
@@ -149,20 +150,18 @@ class PatrolUnit {
   constructor(system, vehicle, index) {
     this.system = system;
     this.vehicle = vehicle;
-    this.fit = new PatrolCar(vehicle.car, system.random);
-    this.driver = system._createOfficer('conductor', index * 2);
-    this.partner = system._createOfficer('acompanante', index * 2 + 1);
-    this.officers = [this.partner, this.driver];
-    // Si los dos corren, el conductor abre por un flanco.
-    this.driver.flank = index % 2 ? -1 : 1;
-    for (const officer of this.officers) officer.onHit = (who) => this._officerHit(who);
+    this.index = index;
+    this.fit = new PatrolCar(vehicle.car, index);
+    this.officers = [];
+    this._assignOfficer(0, system._roster[index * 2 + 1]);
+    this._assignOfficer(1, system._roster[index * 2]);
     this.mode = 'ronda';      // ronda | persigue | desiste
     this.phase = 'ronda';     // ronda | carro | frenando | parada | cierre
     this.level = 0;
     this.seen = false;        // lo ve esta patrulla (su carro o sus agentes); lo de toda la persecución es `anyoneSees`
     this.carSees = false;
     this.carDistance = Infinity;
-    this.endReason = null;    // por qué desistieron: perdido | lejos | sin-avance | inalcanzable | tope | estorbo | trabada
+    this.endReason = null;    // por qué desistieron: perdido | lejos | sin-avance | inalcanzable | tope | estorbo | trabada | baja
     this.stopTarget = new THREE.Vector3();
     this.stopAxis = new THREE.Vector3();   // con qué eje queda parada (ver `_chooseStop`); en cero, como llegue
     this._brakeFrom = new THREE.Vector3(); // dónde y con qué rumbo empezó a frenar: el arranque de la curva hasta la parada
@@ -177,6 +176,85 @@ class PatrolUnit {
     this.reinforcing = false;
     this.dead = false;
     this._reset();
+  }
+
+  get partner() { return this.officers[0]; }
+  get driver() { return this.officers[1]; }
+  get awaitingDriver() { return this.driver.isDead; }
+
+  _assignOfficer(seat, record = {}) {
+    const driver = seat === 1, slot = this.index * 2 + Number(!driver);
+    const generation = record.generation ?? 0;
+    const previous = this.officers[seat];
+    if (previous) {
+      this.system._removePerson(previous);
+      previous.dispose();
+    }
+    const officer = this.system._createOfficer(driver ? 'conductor' : 'acompanante', slot, generation);
+    if (record.health > 0) officer.health = Math.min(officer.maxHealth, record.health);
+    const partner = this.officers[1 - seat];
+    if (record.voice) officer._voz = record.voice;
+    else if (partner && !partner.isDead) officer._voz = partner._voz === 'policia_a' ? 'policia_b' : 'policia_a';
+    this.officers[seat] = officer;
+    if (driver) officer.flank = this.index % 2 ? -1 : 1;
+    officer.onHit = (who, attacker, held) => this._officerHit(who, attacker, held);
+    const fallen = record.fallen;
+    if (fallen) {
+      officer.position.fromArray(fallen.position);
+      officer.root.visible = !fallen.bodyReleased;
+      officer.emergencyReported = fallen.emergencyReported === true;
+      officer.emergencyAided = fallen.emergencyAided === true;
+      officer.restoreDeath({ facing: fallen.yaw, plan: fallen.plan });
+      if (fallen.bodyReleased) officer.dispose();
+    }
+  }
+
+  restoreRoster(slots) {
+    for (const [seat, officer] of this.officers.entries()) {
+      const record = slots[officer.slot];
+      if (!record || record.generation < officer.generation) continue;
+      if (record.generation === officer.generation) {
+        if (record.voice) officer._voz = record.voice;
+        if (officer.isDead) {
+          if (record.fallen?.emergencyReported) officer.emergencyReported = true;
+          if (record.fallen?.emergencyAided) officer.emergencyAided = true;
+          if (record.fallen?.bodyReleased) officer.dispose();
+          continue;
+        }
+        if (!record.fallen) {
+          if (record.health > 0) officer.health = Math.min(officer.health, record.health);
+          continue;
+        }
+      }
+      this._assignOfficer(seat, record);
+    }
+    this._syncSeats();
+    if (this.awaitingDriver || this.vehicle.state === 'uncrewed') {
+      this.vehicle.hold = this.awaitingDriver;
+      this.system.traffic._returnToPatrol(this.vehicle);
+    }
+  }
+
+  _syncSeats() {
+    this.vehicle.car.setDriverInside?.(this.driver.state === 'dentro');
+    this.fit.setPassengerInside(this.partner.state === 'dentro');
+    this.fit.update(0);
+  }
+
+  /** Al terminar el turno, el relevo sube fuera de la vista, después de retirar el cuerpo de la calle. */
+  _relieve(ctx) {
+    if (this.mode !== 'ronda' || !this.officers.some(officer => officer.bodyReleased)) return;
+    const car = this.vehicle.car.position;
+    if (ctx.inView(car) || car.distanceToSquared(ctx.player) <= NPC_LOD.animEvery ** 2) return;
+    for (const [seat, officer] of this.officers.entries()) {
+      if (officer.bodyReleased) this._assignOfficer(seat, { generation: officer.generation + 1 });
+    }
+    this._syncSeats();
+    if (!this.awaitingDriver && this.vehicle.state === 'uncrewed') {
+      this.vehicle.hold = false;
+      this.system.traffic._returnToPatrol(this.vehicle);
+    }
+    return true;
   }
 
   /** Lo que sabe toda la persecución, por radio: si alguna patrulla lo ve, cuánto lleva nadie viéndolo y dónde lo vieron. */
@@ -238,7 +316,7 @@ class PatrolUnit {
   }
 
   /** Para TrafficSystem: mientras no desista, la patrulla sigue en persecución (también antes de su primer cuadro). */
-  get pursuing() { return this.mode !== 'desiste'; }
+  get pursuing() { return this.mode !== 'desiste' && !(this.driver.isDead && this.partner.isDead); }
 
   /** A pie cuenta el agente más cercano; con todos adentro, el carro. */
   get pursuitDistance() {
@@ -258,6 +336,7 @@ class PatrolUnit {
   // ---------- el carro (lo llama TrafficSystem en cada subpaso) ----------
 
   planCar(vehicle, stepTime, player, traffic) {
+    if (this.awaitingDriver) return this._park(vehicle);
     if (!player || this.dead) return false;
     if (this.mode === 'ronda') this._begin(traffic);
     const handled = this.phase === 'carro' ? this._drive(vehicle, stepTime, player, traffic)
@@ -597,7 +676,7 @@ class PatrolUnit {
   update(dt, ctx) {
     const vehicle = this.vehicle, traffic = this.system.traffic;
     this.fit.update(dt);
-    if (this.mode === 'ronda') return;
+    if (this.mode === 'ronda') return this._relieve(ctx);
     // La persecución terminó por el carro (desistió sin que nadie se bajara) o por fuera: todos adentro.
     if (vehicle.state !== 'chase') { this.recall(); return; }
     const player = ctx.player;
@@ -675,7 +754,7 @@ class PatrolUnit {
 
   /** ¿Llega el carro hasta el jugador? Sin camino unos segundos, el conductor también se baja (fichado 2 o más). */
   _probe(dt, player) {
-    if (this.driver.out) { this._unreachable = 0; return; }
+    if (this.driver.state !== 'dentro') { this._unreachable = 0; return; }
     this._probeTimer -= dt;
     if (this._probeTimer <= 0) {
       this._probeTimer = PROBE_EVERY;
@@ -686,7 +765,7 @@ class PatrolUnit {
 
   _driverShouldExit() {
     // Con alguien retenido detrás se queda al volante: la tiene que correr.
-    if (this.driver.out || this._driverDelay > 0 || this._moveNow) return false;
+    if (this.driver.state !== 'dentro' || this._driverDelay > 0 || this._moveNow) return false;
     if (this._forceDriver || this.system.playerVehicle) return true;
     if (this.level < 2) return false;
     if (this.carDistance > POLICE_FOOT.driverNear && this._unreachable < POLICE_FOOT.driverUnreachable) return false;
@@ -705,12 +784,13 @@ class PatrolUnit {
   _dismount(player) {
     this._dismountPending = false;
     if (this.mode !== 'persigue') return;
-    if (!this.partner.out) {
+    if (this.partner.state === 'dentro') {
       this._exit(this.partner, player);
       // El compañero sale primero; el conductor, un momento después.
       this._driverDelay = DRIVER_DELAY;
     }
     if (this._driverShouldExit()) this._exit(this.driver, player);
+    if (!this.anyoneOut) { this._desist('baja'); return; }
     if (!this._toldDismount) {
       this._toldDismount = true;
       toast('¡Se bajaron de la patrulla y vienen a pie!', 'death');
@@ -718,6 +798,7 @@ class PatrolUnit {
   }
 
   _exit(officer, player) {
+    if (officer.state !== 'dentro') return;
     const fit = this.fit;
     let side = officer.seatSide;
     // Su puerta da contra una pared o un carro: sale por la del otro, si no la está usando.
@@ -745,6 +826,7 @@ class PatrolUnit {
   /** Persecución a pie: buscar, desistir, volver al volante o bajar al conductor. */
   _decide(dt, player) {
     const traffic = this.system.traffic;
+    if (!this.anyoneOut && this.awaitingDriver) { this._desist('baja'); return; }
     if (this.anyoneSees) for (const officer of this.officers) if (officer.state === 'busqueda') officer.resumeChase();
     const onFoot = this.officers.filter(officer => officer.onFoot);
     if (onFoot.length) {
@@ -792,7 +874,7 @@ class PatrolUnit {
     if (this._cannotMove) { this._desist('estorbo'); return; }
     // Al volante otra vez: solo si el jugador va lejos, el carro llega y su compañero sigue corriendo.
     this._cutOffTimer -= dt;
-    if (this._cutOffTimer > 0 || this.driver.out || !partnerChasing || this.partner.doorSide !== this.partner.seatSide) return;
+    if (this._cutOffTimer > 0 || this.driver.state !== 'dentro' || !partnerChasing || this.partner.doorSide !== this.partner.seatSide) return;
     if (!this.seen || this.carDistance < CUT_OFF_FROM || !this._reachable) { this._cutOffTimer = CUT_OFF_EVERY; return; }
     // Con alguno de los suyos todavía junto al carro, o en su camino, no arranca: lo dejaría sin por dónde pasar.
     if (this._crewBeside(CUT_OFF_CREW) || this._officerAhead(this.vehicle)) { this._cutOffTimer = .25; return; }
@@ -963,7 +1045,9 @@ class PatrolUnit {
     if (this.phase === 'cierre' || this.phase === 'carro') this._startBrake(this.vehicle, this.system.traffic);
     // El aviso sale un momento después, con la placa del HUD ya abajo (si sale de una, el HUD lo bota), y una sola vez
     // por persecución: si otra patrulla sigue, lo dará la última.
-    this.system._scheduleEscape(reason);
+    if (reason === 'baja') {
+      if (!this.system.traffic.inPursuit) this.system._escapeHandled();
+    } else this.system._scheduleEscape(reason);
   }
 
   /** Lo vieron robar mientras volvían: retoman la persecución desde donde están, con los que ya andan afuera. */
@@ -995,7 +1079,7 @@ class PatrolUnit {
     this.mode = 'ronda';
     this.phase = 'ronda';
     this.reinforcing = false;
-    vehicle.hold = false;
+    vehicle.hold = this.awaitingDriver;
     vehicle.stoppedFor = 0;
     this._clearHeld();
     this._resumeLights();
@@ -1004,13 +1088,24 @@ class PatrolUnit {
   }
 
   /** Le pegaron a uno: si se habían ido, vuelven por él; su compañero sale o viene. */
-  _officerHit(officer) {
+  _officerHit(officer, attacker, held) {
+    if (officer.isDead) {
+      this.system._removePerson(officer);
+      if (held && !this.system.officers.some(other => other._grab?.phase === 'agarre')) emit('police-release');
+      if (this.officers.every(other => other.isDead)) {
+        if (this.mode === 'persigue') this._desist('baja');
+        else if (!this.system.traffic.inPursuit) this.system._escapeHandled();
+        return;
+      }
+    }
+    if (!attacker || attacker !== this.system.player) return;
     const player = this.system.player?.position;
     if (this.mode === 'ronda') return;
     if (this.mode === 'desiste') this.resume(player ?? officer.position);
     else if (player) this.system._spot(player);
     officer.resumeChase();
     const other = officer === this.driver ? this.partner : this.driver;
+    if (other.isDead) return;
     if (other.out) other.resumeChase();
     else {
       if (other === this.driver) this._forceDriver = true;
@@ -1026,10 +1121,12 @@ class PatrolUnit {
       this.system._removePerson(officer);
     }
     this.fit.restore();
+    this._syncSeats();
     this.mode = 'ronda';
     this.phase = 'ronda';
     this.reinforcing = false;
-    this.vehicle.hold = false;
+    this.vehicle.hold = this.awaitingDriver;
+    if (this.awaitingDriver) this.system.traffic._returnToPatrol(this.vehicle);
     this.vehicle.stoppedFor = 0;
     this._reset();
   }
@@ -1037,7 +1134,7 @@ class PatrolUnit {
   /** Su carro ya no está: el que esté afuera se va cuando nadie lo vea. */
   orphan(dt, ctx) {
     this.mode = 'ronda';
-    let left = false;
+    let left = this.officers.some(officer => officer.isDead && !officer.bodyReleased);
     for (const officer of this.officers) {
       if (!officer.out) continue;
       if (!ctx.inView(officer.position)) { officer.enterCar(); this.system._removePerson(officer); continue; }
@@ -1070,6 +1167,7 @@ export class PoliceFootSystem {
     this.getPlayerVehicle = getPlayerVehicle;
     this.traffic = null;
     this.units = [];
+    this._roster = [];
     this.people = null;
     this.collisions = null;
     this.arrests = 0;
@@ -1102,6 +1200,7 @@ export class PoliceFootSystem {
    * @param {object[]} people peatones que los carros respetan: los agentes a pie entran ahí
    */
   setup(district, traffic, people = null, { collisions = null } = {}) {
+    if (this.units.length) this._roster = this.serializeRoster().slots;
     this._disposeUnits();
     this.traffic = traffic;
     this.people = people;
@@ -1120,13 +1219,14 @@ export class PoliceFootSystem {
     this.units = traffic.vehicles.filter(vehicle => vehicle.police).map((vehicle, index) => {
       const unit = new PatrolUnit(this, vehicle, index);
       vehicle.crew = unit;
+      unit.restoreRoster(this._roster);
       return unit;
     });
     this._buildLanes(traffic.routes ?? [], district?.busServices ?? traffic.busVehicles?.map(bus => bus.car) ?? []);
   }
 
-  _createOfficer(role, index) {
-    const officer = new PoliceOfficer(this.scene, { role, index, routes: this.routes, random: this.random,
+  _createOfficer(role, index, generation) {
+    const officer = new PoliceOfficer(this.scene, { role, index, generation, routes: this.routes, random: this.random,
       isWalkable: this._isWalkable, groundHeight: this._ground, getWaterInfo: this._water, collisions: this.collisions });
     officer.canReplan = this._takeReplan;
     return officer;
@@ -1134,8 +1234,39 @@ export class PoliceFootSystem {
 
   get officers() { return this.units.flatMap(unit => unit.officers); }
 
+  /** Un asiento conserva la identidad de quien lo ocupa y la última baja mientras espera relevo. */
+  serializeRoster() {
+    const slots = this._roster.slice();
+    for (const officer of this.officers) {
+      const record = { generation: officer.generation, health: officer.health, voice: officer._voz };
+      if (officer.isDead) record.fallen = {
+        position: officer.position.toArray(), yaw: officer._fallYaw, plan: officer._koPlan, bodyReleased: officer.bodyReleased,
+        emergencyReported: !!officer.emergencyReported, emergencyAided: !!officer.emergencyAided
+      };
+      slots[officer.slot] = record;
+    }
+    return { slots };
+  }
+
+  restoreRoster(data) {
+    if (!Array.isArray(data?.slots)) return;
+    this._roster = data.slots.map(record => {
+      if (!Number.isSafeInteger(record?.generation) || record.generation < 0) return undefined;
+      const { fallen } = record;
+      const slot = { generation: record.generation };
+      if (record.voice === 'policia_a' || record.voice === 'policia_b') slot.voice = record.voice;
+      if (Array.isArray(fallen?.position) && fallen.position.length === 3 && fallen.position.every(Number.isFinite)) {
+        slot.fallen = { position: [...fallen.position], yaw: Number.isFinite(fallen.yaw) ? fallen.yaw : 0,
+          plan: fallen.plan === 'muro' ? 'muro' : 'espalda', bodyReleased: fallen.bodyReleased === true,
+          emergencyReported: fallen.emergencyReported === true, emergencyAided: fallen.emergencyAided === true };
+      } else if (Number.isFinite(record.health) && record.health > 0) slot.health = record.health;
+      return slot;
+    });
+    for (const unit of this.units) unit.restoreRoster(this._roster);
+  }
+
   /** Personajes para precargar junto con los demás NPC. */
-  get preloadables() { return this.officers; }
+  get preloadables() { return this.officers.filter(officer => !officer.bodyReleased); }
 
   get playerVehicle() { return this.getPlayerVehicle?.() ?? null; }
 
@@ -1156,20 +1287,27 @@ export class PoliceFootSystem {
       this._frustum.setFromProjectionMatrix(_matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     }
     this._replanned = false;
-    const ctx = { player, inView: this.inView };
+    const ctx = { player, inView: this.inView, frustum: camera ? this._frustum : null, drawDistance: VIEW_DISTANCE, releaseDeadBody: true };
     // Primero lo que ve cada patrulla; después, lo que sabe toda la persecución; después cada una decide.
     for (const unit of this.units) if (unit.watching && this.traffic.vehicles.includes(unit.vehicle)) unit._look(player, this.traffic);
     this._share(dt, player);
+    let rosterChanged = false;
     for (const unit of this.units) {
+      for (const officer of unit.officers) if (officer.isDead && !officer.bodyReleased) {
+        officer.update(dt, ctx);
+        if (officer.bodyReleased) rosterChanged = true;
+      }
       if (!this.traffic.vehicles.includes(unit.vehicle)) unit.orphan(dt, ctx);
-      else unit.update(dt, ctx);
+      else if (unit.update(dt, ctx)) rosterChanged = true;
     }
     this._notify(dt);
     this._separate();
     if (this.units.some(unit => unit.dead)) {
+      this._roster = this.serializeRoster().slots;
       for (const unit of this.units.filter(unit => unit.dead)) unit.dispose();
       this.units = this.units.filter(unit => !unit.dead);
     }
+    if (rosterChanged) emit('population-changed');
   }
 
   /** Junta lo que ve cada patrulla que persigue: si una lo ve, todas saben dónde está (y ningún reloj de abandono corre). */

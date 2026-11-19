@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
+import { frasesDe } from '../src/data/vocesCalle.js';
 import { PedestrianNavigation } from '../src/world/bogota/PedestrianNavigation.js';
 
 // Las conductas son de Npc: el cuerpo solo se mira a través de lo que se le pide.
@@ -119,6 +120,18 @@ test('el recorrido prefiere volver a su zona cuando se alejó', async () => {
   npc.position.set(10, 0, 0);
   npc.navigation = { createRoute: () => [new THREE.Vector3(20, 0, 0)] };
   assert.equal(npc._chooseRoute()[0].x, 20, 'cerca de casa, cualquiera');
+  npc.dispose();
+});
+
+test('al pasear y al huir sortea cada destino con el azar del propio peatón', async () => {
+  const routeRandom = () => .5;
+  const npc = await person('senora', { routeRandom });
+  const route = mock.method(npc.navigation, 'createRoute');
+  npc.home.set(400, 0, 0); // lejos de casa compara dos recorridos para el paseo
+  assert.ok(npc._chooseRoute().length);
+  assert.ok(npc._startFleeRoute());
+  assert.equal(route.mock.callCount(), 5);
+  assert.ok(route.mock.calls.every(call => call.arguments[1] === routeRandom));
   npc.dispose();
 });
 
@@ -389,6 +402,21 @@ test('el celular y el cigarrillo aparecen con la postura y solo de cerca', async
   npc._updateHeld(null);
   assert.equal(npc.fullChar.smoking, false);
   npc.dispose();
+});
+
+test('un saludo de proximidad espera a que termine la frase que se ve sobre el peatón', async t => {
+  const npc = await person('senora', { fijo: { stance: 'manos-atras' } });
+  t.after(() => npc.dispose());
+  const player = npc.position.clone();
+  npc.say(frasesDe('ambiente', 'senora')[0].text, 3);
+  const original = npc._bubbleEl;
+  npc._lastSpokenTime = -Infinity;
+  t.mock.method(Math, 'random', () => 0);
+  npc.update(.05, { player });
+  assert.equal(npc._bubbleEl, original);
+  npc.callar(original.textContent);
+  npc.update(.05, { player });
+  assert.ok(npc._bubbleEl, 'se puede volver a saludar después de la frase');
 });
 
 test('lejos, quieto y sin animar, toma la postura nueva de una y una sola vez', async () => {

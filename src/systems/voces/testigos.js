@@ -7,12 +7,14 @@ import { REUSO } from '../../data/vocesReuso.js';
 /** Situación del testigo (WitnessSystem) → categoría. */
 export const TESTIGO_A_CATEGORIA = Object.freeze({
   llamar: 'witnessCall', grabar: 'witnessFilm', colgar: 'witnessHangUp', robo: 'witnessTheft', pelea: 'witnessFight',
+  auxilio: 'witnessAid', alertaMuerte: 'witnessBody', hallazgo: 'witnessBody',
 });
 
 /** Situación de vocesCalle.js → categoría. */
 const CATEGORIA_DE_SITUACION = Object.freeze({
   testigo_llama: 'witnessCall', testigo_graba: 'witnessFilm', testigo_cuelga: 'witnessHangUp',
   testigo_robo: 'witnessTheft', testigo_pelea: 'witnessFight',
+  auxilio: 'witnessAid', hallazgo: 'witnessBody',
 });
 
 function armar() {
