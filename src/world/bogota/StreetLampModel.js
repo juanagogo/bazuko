@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SignalMesher, roundedRect, createNoise, createRandom, mix, ramp } from './SignalModel.js';
 import { chainSunField } from './SunFieldShader.js';
+import { STREET_SODIUM_PERCENT } from './StreetLightShader.js';
 
 // Poste de alumbrado de Bogotá hecho por código: concreto centrifugado, brazo galvanizado
 // y luminaria de cuerpo bajo. Origen en la base a nivel de andén; +X sale hacia la calzada.
@@ -315,9 +316,14 @@ export function createLampHaloGeometry() {
 
 // ---------- materiales ----------
 
-// Una de cada cuatro luminarias ya es LED, las demás siguen con sodio: lo que se ve de noche.
+// En alta, la lente tiene el mismo tono que la luminaria que proyecta el mapa de la ciudad.
 const LAMP_TONE = /* glsl */`
-  vec3 lampTone(float seed, vec3 led, vec3 sodium) { return fract(seed) > .74 ? led : sodium; }
+  uniform float lampMapped;
+  vec3 lampTone(float seed, vec3 led, vec3 sodium) {
+    bool white = lampMapped > .5 ? mod(floor(seed * 100. + .5), 100.) > ${STREET_SODIUM_PERCENT.toFixed(1)} : fract(seed) > .74;
+    if (white) return mix(led, vec3(.79, .87, 1.), lampMapped);
+    return mix(sodium, vec3(1., .64, .36), lampMapped);
+  }
 `;
 
 export function createStreetLampMaterial(night, atlas) {
@@ -326,6 +332,7 @@ export function createStreetLampMaterial(night, atlas) {
   material.customProgramCacheKey = () => 'street-lamp-v1';
   material.onBeforeCompile = shader => {
     shader.uniforms.lampNight = night;
+    shader.uniforms.lampMapped = mapped;
     shader.vertexShader = /* glsl */`
       attribute float signalLens;
       attribute vec2 signalSurface;
@@ -386,7 +393,7 @@ export function createStreetLampMaterial(night, atlas) {
 export function createLampHaloMaterial(wet) {
   return new THREE.ShaderMaterial({
     name: 'Resplandor de farol',
-    uniforms: { lampWet: wet },
+    uniforms: { lampWet: wet, lampMapped: mapped, lampNight: night },
     transparent: false, depthWrite: false, depthTest: true,
     blending: THREE.AdditiveBlending,
     toneMapped: false, fog: false,
@@ -394,6 +401,7 @@ export function createLampHaloMaterial(wet) {
       attribute vec2 haloCorner;
       attribute float haloKind;
       uniform float lampWet;
+      uniform float lampNight;
       varying vec2 vHaloCorner;
       varying vec3 vHaloTint;
       varying float vHaloStreak;
@@ -415,7 +423,7 @@ export function createLampHaloMaterial(wet) {
         vec3 tint = lampTone(lampSeed, vec3(1., .84, .62), vec3(1., .6, .24));
         if (haloKind < 0.) {
           // El reflejo cae sobre la línea que une la luminaria con quien mira. Sin agua no se dibuja.
-          float strength = lampWet * .3;
+          float strength = lampWet * lampNight * (1. - lampMapped) * .3;
           vec2 toEye = cameraPosition.xz - world.xz;
           float reach = length(toEye);
           if (strength < .01 || reach < 2.) return;
@@ -435,7 +443,7 @@ export function createLampHaloMaterial(wet) {
         float radius = 1.05 * (1. + min(distanceToCamera, 90.) * .022);
         view.xy += haloCorner * radius;
         gl_Position = projectionMatrix * view;
-        vHaloTint = tint * mix(.16, .72, below);
+        vHaloTint = tint * lampNight * mix(.16, .72, below);
       }
     `,
     fragmentShader: /* glsl */`
@@ -455,7 +463,8 @@ export function createLampHaloMaterial(wet) {
 // ---------- recursos compartidos ----------
 
 let shared = null;
-const night = { value: 0 }, wet = { value: 0 };
+let scheduledNight = false;
+const night = { value: 0 }, wet = { value: 0 }, mapped = { value: 0 };
 
 /** Todos los faroles comparten estos recursos; se liberan al soltar el último. */
 export function acquireStreetLampAssets() {
@@ -473,7 +482,7 @@ export function acquireStreetLampAssets() {
     shared.farGeometry.boundingBox = shared.geometry.boundingBox;
     shared.farGeometry.boundingSphere = shared.geometry.boundingSphere;
     shared.geometry.userData.farVariant = shared.farGeometry;
-    shared.haloMaterial.visible = night.value > .5;
+    shared.haloMaterial.visible = night.value > .005;
   }
   shared.users++;
   return shared;
@@ -500,9 +509,20 @@ export function releaseStreetLampAssets() {
 }
 
 /** Sin llamadas de dibujo de día: el resplandor ni siquiera entra en la lista. */
+function applyLampLevel(level) {
+  night.value = level;
+  if (shared) shared.haloMaterial.visible = level > .005;
+}
+
 export function setStreetLampNight(isNight) {
-  night.value = isNight ? 1 : 0;
-  if (shared) shared.haloMaterial.visible = isNight;
+  scheduledNight = !!isNight;
+  if (!mapped.value) applyLampLevel(scheduledNight ? 1 : 0);
+}
+
+/** En alta una sola curva solar enciende la lente, su halo y la luz que llega a la calle. */
+export function setStreetLampTwilight(level) {
+  mapped.value = level === null ? 0 : 1;
+  applyLampLevel(level ?? (scheduledNight ? 1 : 0));
 }
 
 export function setStreetLampWetness(amount = 0) { wet.value = amount; }

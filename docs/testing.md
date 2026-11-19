@@ -96,6 +96,8 @@ La dirección, paleta y límites de la actualización están en [direccion-visua
 
 - `character-motion.test.js`: movimiento independiente de FPS, poses sin acumulación, aislamiento entre esqueletos y conservación de pies/raíz.
 - `urban-atmosphere.test.js`: cielo y lluvia con color de salida correcto, cambios de día/noche y entorno PBR exterior.
+- `lluvia-visible.test.js`: la lluvia que se ve, sin navegador. El clima gasta los mismos sorteos que antes al armarse, con escena y sin ella, y cada gota guarda sus cuatro sorteos de siempre en las cuatro esquinas de su cuadro, que se dibuja por las dos caras; son seis índices por gota y crecen con la calidad; de noche las gotas bajo los faroles más cercanos se aclaran y de día no, y el aro de la salpicadura toma el color de la lluvia; con lluvia, `update` solo gasta azar cuando renace un aro; las cortinas solo se ven con lluvia, en baja queda solo el anillo lejano, comparten el color de las gotas, el velo toma el de la niebla y rodean a la cámara cuando está cerca y al jugador cuando está lejos; la corona sale al nacer, se aplana a un cuarto de su vida sin dejar huella y con aguacero el aro sube a 0,3; con la cámara vista, las salpicaduras nacen delante de ella, entre 2 y 12 m y dentro de 110°, y el filo del viaducto gotea cerca del jugador con lluvia, sin gastar azar, con hasta 24 hilos a menos de 18 m, y en seco no.
+- `grado-color.test.js`: la curva de color propia se instala en el trozo de three (y si three lo cambia, se sigue con la fílmica); el pie hunde los negros sin empastar, nada gana brillo, sombra fría y alta cálida de día, penumbra azulada y pozo de sodio de noche, y los colores fuertes y la piel conservan el matiz. El paso de día a noche es continuo con la exposición, también en el rango donde entra el color de la noche (`colorNocheDesde` a `colorNocheHasta`).
 - `photo-mode.test.js`: entrada/salida, cámara y audio restaurados, atajos, foco, captura PNG, nombre del archivo, marcas del mundo fuera de la foto y controles que se esconden.
 - `entrada.test.js` y `tests/e2e/entrada.spec.js`: pantalla de carga en una tinta, palabra que se escribe, fallo y reintento, creador en cinco tamaños con teclado y dedo, y modo foto y panel de rendimiento con el juego real. Ver `docs/identidad-visual.md`.
 - El navegador comprueba F2, simulación y tráfico congelados, HUD oculto, descarga PNG con contenido real y restauración de cámara; también detecta errores JavaScript y de compilación de shaders durante ese flujo.
@@ -197,10 +199,12 @@ De Doña Inés, en el mismo archivo: las tres exportaciones de `D69Store.js`, un
 `toldos-lonas.test.js` pinta las dos hojas de detalle con un lienzo que sí rellena rectángulos y degradados y mide en ellas color, desgaste y dobladillo de las siete celdas de lona (rayas roja y azul de las fachadas y lonas verde, naranja y azul del oriente); cuenta los sorteos del azar de cada hoja que gastan las lonas (480 por lona de fachada; 3.100 entre rayas y lonas del oriente) y revisa que el faldón de la lona corta de los locales cuelgue 12 cm, no baje de 2,6 m, lleve solo la franja de abajo de la celda y siga siendo una cara.
 
 
+`calzada-noche.test.js` cuida la calzada de noche (`NIGHT_ROAD` y `lightOnAsphalt` en `AsphaltDressing.js`) en nueve casos: la luz de los faroles con grano, aditiva, con niebla y en una pasada; el piso seco de noche; la mezcla mojada por píxel solo de noche; el entorno borroso con una sola consulta; lo mojado que llega de `setWetness` (0,65 en baja); la noche que sigue a la escena sin soltar el piso mojado; un solo programa para calzada y troncal, y que nada gasta el azar del juego.
 
 
 
 
+`piso-mojado.test.js` cuida los charcos y el piso mojado (`StreetPuddles.js`): los charcos toman siempre 108 números del azar de la ciudad, caigan donde caigan, y van en su propio grupo, fuera de los sectores de la calle; de noche el piso mojado y los charcos bajan el reflejo del entorno (a 0,3 y 0,22) y de día o en seco no cambian; los anillos de gota miden medio centímetro y se apagan de lejos, y el agua de la cuneta queda a 3 cm del sardinel con una orilla que cambia según el sitio. También fija que el charco no pasa de 1,3 veces el valor del asfalto mojado (cielo de radiancia 1, luz difusa 0,25, asfalto de albedo 0,1), que la cuneta lleva una banda de 20 a 30 cm desde el sardinel y que al menos un 25 % de los remiendos guarda charco.
 
 `sombra-contacto.test.js` cuida la penumbra al pie de los muros y bajo postes, bancas y puestos (`sombraContacto.js`): no gasta el azar con que se arma la ciudad; va en su lote, sobre el suelo pintado y bajo las manchas de la gente, sin escribir profundidad; cada franja está pegada a un muro y cuesta poco; postes, bancas y puestos dejan su mancha y la penumbra se apaga hacia afuera; la opacidad sigue la hora de la escena, y la reja de la orilla no oscurece el piso.
 
@@ -253,7 +257,9 @@ La prueba larga de tráfico monta el tráfico como una partida: ciudad completa,
 
 
 
+`sky-fog.test.js` comprueba que la niebla de todo material integrado lea el mismo cielo que la cúpula, que la curva del degradado sea una sola y el color de la niebla siga siendo el horizonte, y que la bruma se acueste: a ras de piso queda igual, arriba se abre y cierra antes del plano lejano.
 
+`luz-hora.test.js` cuida la luz de cada hora sin navegador: de noche lo más oscuro sube al menos la mitad frente a la curva anterior sin tocar el pozo del farol, y la curva sigue creciendo a toda exposición; una mañana nublada y una tarde con llovizna no llevan el color de la noche y las 22:00 sí; al atardecer despejado el sol es rosado y el relleno malva, a mediodía y nublado no, y el relleno sube y baja sin saltos; a igual altura del sol el amanecer es más frío y pálido que la tarde con la misma cantidad de luz, y a medianoche nada salta; el cielo nublado es gris claro y solo el medio nublado deja sombra de nubes.
 
 
 ## Gente de la calle

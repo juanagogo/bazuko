@@ -1,30 +1,36 @@
 import * as THREE from 'three';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
+import { daylightCloudShader } from './SkyClouds.js';
 import { sunDirection, moonDirection, moonPhase, moonIllumination } from '../world/Climate.js';
 import { setNightGlow, setSunFieldLight, sunFieldUniforms } from '../world/bogota/SunField.js';
+import { setStreetLightLevel } from '../world/bogota/StreetLightShader.js';
+import { setStreetLampTwilight } from '../world/bogota/StreetLampModel.js';
 
 const smooth = THREE.MathUtils.smoothstep;
 const clamp01 = value => THREE.MathUtils.clamp(value, 0, 1);
 const C = hex => new THREE.Color(hex);
 
-// Paleta del cielo bogotano: despejado de altura, cubierto y crepuscular.
+// Paleta del cielo bogotano: despejado de altura, cubierto y crepuscular. El amanecer es pálido y frío;
+// el arrebol es de la tarde.
 const SKY = {
   nightTop: C(0x101b2a), nightTopOvercast: C(0x263344),
   nightHorizon: C(0x26394a), nightHorizonOvercast: C(0x394454),
-  dayTop: C(0x1a58ad), dayTopOvercast: C(0x76838f),
-  dayHorizon: C(0xa9cae8), dayHorizonOvercast: C(0xa3acb4),
-  twilightTop: C(0x3a5c9a), twilightHorizon: C(0xf8c48c),
+  dayTop: C(0x1a58ad), dayTopOvercast: C(0x8b9298),
+  dayHorizon: C(0xa9cae8), dayHorizonOvercast: C(0xbfc1bd),
+  twilightTop: C(0x3a5c9a), twilightHorizon: C(0xf4ae8a), dawnTop: C(0x5d7398), dawnHorizon: C(0xe8c9b4),
   rain: C(0x3c4651), mistDay: C(0xa9aeb2), mistNight: C(0x384854), flash: C(0x8e98b0)
 };
 const CLOUD = {
-  dayLight: C(0xffffff), dayShadow: C(0x8b9aab), overcastShadow: C(0x5e6771),
-  twilightLight: C(0xffc39a), twilightShadow: C(0x5f5068),
+  dayLight: C(0xffffff), dayShadow: C(0x8b9aab), overcastShadow: C(0x6f7276),
+  twilightLight: C(0xffc39a), twilightShadow: C(0x5f5068), dawnLight: C(0xf0d8cc), dawnShadow: C(0x667089),
   nightLight: C(0x455160), nightShadow: C(0x222e3e), rainShadow: C(0x3c434b)
 };
 const MOON_GRAZE_LIMIT = .25;
-const SUN = { day: C(0xfff0dc), low: C(0xff8a3c), overcast: C(0xdde4ec), night: C(0xa5b9d2), moon: C(0xbecde0) };
-const HEMI = { day: C(0xbcc3ca), dayOvercast: C(0xb4bcc6), night: C(0x9aaac0), groundDay: C(0x8f806c), groundNight: C(0x8a7a66) };
+const SUN = { day: C(0xfff0dc), low: C(0xff7c55), dawn: C(0xffbe96), overcast: C(0xdde4ec), night: C(0xa5b9d2), moon: C(0xbecde0) };
+const HEMI = { day: C(0xbcc3ca), dayOvercast: C(0xb4bcc6), twilight: C(0xc9b2c0), dawn: C(0xa7adc6), night: C(0x9aaac0), groundDay: C(0x8f806c), groundNight: C(0x8a7a66) };
 const OCTAVES = { baja: 2, media: 3, alta: 4 };
+// Los colores del sol bajo según sea de mañana o de tarde; se reescriben en cada llamada.
+const LOW = { sun: C(0), fill: C(0), top: C(0), horizon: C(0), cloudLight: C(0), cloudShadow: C(0) };
 
 // La curva del degradado del cielo: la misma para la cúpula y para la niebla, o no empalman.
 const SKY_RAMP = 'pow( max( y + .04, 0. ), .78 )';
@@ -42,7 +48,15 @@ export const skyFogUniforms = {
   // Cielo cerrado: xyz es el color de la capa de nubes y w cuánto la tapa.
   skyFogCloud: { value: { x: 0, y: 0, z: 0, w: 0 } },
   skyFogGlow: { value: { r: 0, g: 0, b: 0 } },
+  // Bruma acostada: x = 1 / alto de la capa, y = cuánto se abre arriba, z = cierre antes del plano lejano, w = neblina baja.
+  skyFogLayer: { value: { x: 0, y: 0, z: 0, w: 0 } },
+  // Segundo tono: cuánto rojo, verde y azul pierde la bruma de medio camino frente al horizonte.
+  skyFogCool: { value: { r: 0, g: 0, b: 0 } },
+  // Velo de sodio de la noche, solo en la capa baja.
+  skyFogVeil: { value: { r: 0, g: 0, b: 0 } },
 };
+// El plano lejano de cada calidad (`GraphicsQuality.js`): ahí la bruma tiene que haber cerrado del todo.
+const FOG_CUT = { baja: 180, media: 220, alta: 300 };
 
 // `fogColor` sigue siendo el horizonte porque la ciudad de fondo lee de él cuánta luz hay.
 THREE.ShaderChunk.fog_pars_vertex = /* glsl */`
@@ -67,6 +81,9 @@ THREE.ShaderChunk.fog_pars_fragment = /* glsl */`
   uniform vec3 skyFogHigh;
   uniform vec4 skyFogCloud;
   uniform vec3 skyFogGlow;
+  uniform vec4 skyFogLayer;
+  uniform vec3 skyFogCool;
+  uniform vec3 skyFogVeil;
   #ifdef FOG_EXP2
     uniform float fogDensity;
   #else
@@ -85,28 +102,60 @@ THREE.ShaderChunk.fog_pars_fragment = /* glsl */`
     #endif
     return linearToOutputTexel( vec4( sky, 1. ) ).rgb;
   }
+  // Desde lo alto la bruma se mira de canto y no a lo largo: de noche (x) y con la neblina de la mañana (y)
+  // pesa menos y su velo queda más hondo que el cielo. A pie de calle (cámara bajo 14 m) vale cero.
+  vec2 skyFogAloft() {
+    float aloft = smoothstep( 14., 50., cameraPosition.y );
+    float night = 1. - smoothstep( .07, .2, dot( skyFogLow, vec3( .2126, .7152, .0722 ) ) );
+    return aloft * vec2( night, ( 1. - night ) * smoothstep( 0., .3, skyFogLayer.w ) );
+  }
   // Lo claro se apaga antes que lo oscuro: una fachada al sol con bruma encima no queda más clara que
   // el cielo. Y lo que se alza sobre el horizonte queda como silueta un poco más oscura, porque igual al
   // cielo se vería translúcido; al llegar al plano lejano se funde del todo y no se nota el corte.
   // De noche no aplica: las ventanas encendidas sí deben atravesar la bruma.
   vec3 skyFogMix( vec3 color, float amount ) {
     vec3 sky = skyFogColor();
-    vec3 mixed = mix( color, sky, amount );
+    // Dos tonos: a medio camino la bruma es más fría y más honda que el horizonte y solo al fondo llega
+    // a su color, así la distancia se lee por planos y no como una pared clara. De noche se le suma el
+    // velo de sodio, a ras de la ciudad.
+    float rest = 1. - amount;
+    vec2 aloft = skyFogAloft();
+    vec3 veil = sky * ( 1. - ( skyFogCool + .45 * aloft.x + .15 * aloft.y ) * rest );
+    // De noche, mirada desde lo alto, la ciudad bajo la bruma queda más oscura que el cielo; en el horizonte empalma.
+    veil *= 1. - .3 * aloft.x * smoothstep( 0., .25, - normalize( vSkyFogRay ).y );
+    veil += skyFogVeil * ( 4. * amount * rest * exp( - max( cameraPosition.y + vSkyFogRay.y, 0. ) * .06 ) );
+    vec3 mixed = mix( color, veil, amount );
     float day = smoothstep( .14, .32, dot( sky, vec3( .3, .6, .1 ) ) );
     mixed -= max( mixed - sky, 0. ) * smoothstep( 0., .55, amount ) * day;
     return mixed * ( 1. - .8 * amount * ( 1. - amount ) * day * smoothstep( -.01, .03, normalize( vSkyFogRay ).y ) );
+  }
+  // Bruma acostada: espesa a ras de piso y abierta arriba, para que las torres asomen sobre ella en vez
+  // de disolverse enteras. A ras de piso queda igual; el cierre llega a 1 justo antes del plano lejano
+  // y tapa su corte. La neblina baja de la madrugada se suma solo en los primeros metros.
+  float skyFogBank( float amount ) {
+    float height = max( cameraPosition.y + vSkyFogRay.y, 0. );
+    float banked = amount * ( 1. - skyFogLayer.y * ( 1. - exp( - height * skyFogLayer.x ) ) );
+    banked += ( 1. - banked ) * skyFogLayer.w * ( 1. - .5 * skyFogAloft().y ) * exp( - height * .12 ) * smoothstep( 0., .3, amount );
+    float closing = clamp( vFogDepth * skyFogLayer.z - 4.3, 0., 1. );
+    return max( banked, closing * closing * ( 3. - 2. * closing ) );
   }
 #endif
 `;
 THREE.ShaderChunk.fog_fragment = /* glsl */`
 #ifdef USE_FOG
+  // Desde lo alto la distancia que cuenta se acorta; a pie de calle queda la de siempre.
+  float fogDepth = vFogDepth;
+  if ( cameraPosition.y > 14. ) {
+    vec2 fogAloft = skyFogAloft();
+    fogDepth *= 1. - .3 * fogAloft.x - .3 * fogAloft.y;
+  }
   #ifdef FOG_EXP2
-    float fogFactor = 1. - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+    float fogFactor = 1. - exp( - fogDensity * fogDensity * fogDepth * fogDepth );
   #else
-    float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+    float fogFactor = smoothstep( fogNear, fogFar, fogDepth );
   #endif
-  // Lo cercano no paga el cálculo: es la mayoría de los píxeles de una calle.
-  if ( fogFactor > .004 ) gl_FragColor.rgb = skyFogMix( gl_FragColor.rgb, fogFactor );
+  // Lo cercano no paga el cálculo: es la mayoría de los píxeles de una calle. El cierre del plano lejano siempre entra.
+  if ( fogFactor > .004 || vFogDepth * skyFogLayer.z > 4.3 ) gl_FragColor.rgb = skyFogMix( gl_FragColor.rgb, skyFogBank( fogFactor ) );
 #endif
 `;
 for (const shader of Object.values(THREE.ShaderLib)) {
@@ -190,9 +239,11 @@ function createSkyDome() {
     },
     vertexShader: `
       varying vec3 vDirection;
+      varying vec3 vRay;
       void main() {
         // La cúpula no rota ni escala: la posición local ya es la dirección de vista.
         vDirection = position;
+        vRay = (modelMatrix * vec4(position, 1.0)).xyz - cameraPosition;
         vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         // Siempre en el plano lejano: la cámara de cualquier calidad la dibuja completa.
         gl_Position = clip.xyww;
@@ -221,6 +272,7 @@ function createSkyDome() {
       uniform float flash;
       uniform float time;
       varying vec3 vDirection;
+      varying vec3 vRay;
 
       float hash21(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -233,12 +285,36 @@ function createSkyDome() {
                    mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
       }
 
-      // Una consulta a la textura vale por varias octavas: en baja cuesta menos que el ruido procedural.
+      ${daylightCloudShader}
+
+      // Se conserva la proyección y la luz de las nubes de noche.
       float cloudDensity(vec2 uv, float threshold) {
         vec2 base = texture2D(cloudNoise, uv * 0.085).rg;
         float shape = base.r * 0.78 + base.g * 0.22;
         if (octaves > 2.5) shape += (texture2D(cloudNoise, uv * 0.37 + base * 0.08).g - 0.5) * 0.14;
         return smoothstep(threshold, threshold + 0.2, shape);
+      }
+
+      vec3 nightClouds(vec3 sky, vec3 dir, float sunDot, float urbanHaze) {
+        if (dir.y > 0.0) {
+          vec2 uv = dir.xz / (dir.y + 0.14) * 1.7 + cloudOffset;
+          float threshold = mix(0.68, 0.3, cloudCover);
+          float density = cloudDensity(uv, threshold);
+          density = max(density, smoothstep(0.86, 1.0, cloudCover) * 0.92);
+          density *= smoothstep(0.0, 0.1, dir.y);
+          float towardSun = density;
+          if (octaves > 2.5) towardSun = cloudDensity(uv + sunDirection.xz * 0.55, threshold);
+          float thickness = clamp(towardSun * 0.75 + cloudCover * 0.32, 0.0, 1.0);
+          vec3 cloud = mix(cloudLight, cloudShadow, thickness);
+          // La nube se funde con la bruma lejos, no recorta el horizonte.
+          cloud = mix(bottomColor * 1.08, cloud, smoothstep(0.02, 0.32, dir.y));
+          cloud += cityGlowColor * cityGlow * (0.18 + urbanHaze * 0.6) * (1.0 - thickness * 0.4);
+          cloud += sunGlowColor * pow(sunDot, 10.0) * (1.0 - thickness) * sunGlowIntensity * 0.8;
+          cloud += vec3(0.75, 0.8, 0.95) * flash * (0.4 + thickness);
+          sky = mix(sky, cloud, density);
+          sky += sunGlowColor * pow(sunDot, 24.0) * density * (1.0 - thickness) * sunDisc * 0.5;
+        }
+        return sky;
       }
 
       void main() {
@@ -284,31 +360,24 @@ function createSkyDome() {
         // Disco solar nítido; las nubes lo tapan más abajo.
         sky += sunGlowColor * smoothstep(0.99955, 0.9998, sunDot) * sunDisc * 6.0;
 
-        // Nubes proyectadas sobre un plano alto: la densidad hacia el sol da volumen sin marchar rayos.
-        if (dir.y > 0.0 && cloudCover > 0.01) {
-          vec2 uv = dir.xz / (dir.y + 0.14) * 1.7 + cloudOffset;
-          float threshold = mix(0.68, 0.3, cloudCover);
-          float density = cloudDensity(uv, threshold);
-          density = max(density, smoothstep(0.86, 1.0, cloudCover) * 0.92);
-          density *= smoothstep(0.0, 0.1, dir.y);
-          // En baja, una sola lectura de nubes por píxel.
-          float towardSun = density;
-          if (octaves > 2.5) towardSun = cloudDensity(uv + sunDirection.xz * 0.55, threshold);
-          float thickness = clamp(towardSun * 0.75 + cloudCover * 0.32, 0.0, 1.0);
-          vec3 cloud = mix(cloudLight, cloudShadow, thickness);
-          // La nube se funde con la bruma lejos, no recorta el horizonte.
-          cloud = mix(bottomColor * 1.08, cloud, smoothstep(0.02, 0.32, dir.y));
-          cloud += cityGlowColor * cityGlow * (0.18 + urbanHaze * 0.6) * (1.0 - thickness * 0.4);
-          cloud += sunGlowColor * pow(sunDot, 10.0) * (1.0 - thickness) * sunGlowIntensity * 0.8;
-          cloud += vec3(0.75, 0.8, 0.95) * flash * (0.4 + thickness);
-          sky = mix(sky, cloud, density);
-          sky += sunGlowColor * pow(sunDot, 24.0) * density * (1.0 - thickness) * sunDisc * 0.5;
+        // El relieve diurno se funde con la capa nocturna cuando empieza a verse el cielo estrellado.
+        if (cloudCover > 0.01) {
+          vec3 ray = normalize(vRay);
+          float daylight = 1.0 - smoothstep(0.12, 0.88, nightFactor);
+          vec3 cloudsByDay = sky;
+          if (daylight > 0.0) cloudsByDay = daylightClouds(sky, ray, sunDot);
+          if (daylight < 1.0) sky = nightClouds(sky, dir, sunDot, urbanHaze);
+          sky = mix(sky, cloudsByDay, daylight);
         }
         sky += vec3(0.5, 0.55, 0.7) * flash * 0.25;
 
         gl_FragColor = vec4(sky, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
+        // Desde lo alto, de noche, lo que queda bajo el horizonte se oscurece igual que la bruma sobre la
+        // ciudad (skyFogMix): donde no hay ciudad que tapar, la cúpula empalma con ella.
+        float aloftNight = smoothstep(14.0, 50.0, cameraPosition.y) * (1.0 - smoothstep(0.07, 0.2, dot(bottomColor, vec3(0.2126, 0.7152, 0.0722))));
+        gl_FragColor.rgb *= 1.0 - 0.3 * aloftNight * smoothstep(0.0, 0.25, -normalize(vRay).y);
       }
     `,
     side: THREE.BackSide,
@@ -428,6 +497,14 @@ export class SceneManager {
     // Empieza con el sol todavía arriba: la hora dorada es lo mejor del día despejado en la sabana.
     const twilight = clamp01(1 - Math.abs(sunAlt - 0.03) / (sunAlt > 0.03 ? 0.26 : 0.17)) * (1 - cloud * .55);
     const lowSun = 1 - smooth(sunAlt, 0.05, 0.4);
+    // De mañana el sol bajo es pálido y de tarde rosado. A medianoche vuelve a cero sin salto: no hay sol que teñir.
+    const afternoon = smooth(hour, 11, 13) - smooth(hour, 23, 24);
+    LOW.sun.copy(SUN.dawn).lerp(SUN.low, afternoon);
+    LOW.fill.copy(HEMI.dawn).lerp(HEMI.twilight, afternoon);
+    LOW.top.copy(SKY.dawnTop).lerp(SKY.twilightTop, afternoon);
+    LOW.horizon.copy(SKY.dawnHorizon).lerp(SKY.twilightHorizon, afternoon);
+    LOW.cloudLight.copy(CLOUD.dawnLight).lerp(CLOUD.twilightLight, afternoon);
+    LOW.cloudShadow.copy(CLOUD.dawnShadow).lerp(CLOUD.twilightShadow, afternoon);
     const sunLit = smooth(sunAlt, -0.03, 0.12);
     const moonLit = smooth(moonAlt, -0.03, 0.1) * (1 - sunLit);
     const moonLight = moonLit * (0.1 + 0.3 * this._illumination) * (1 - 0.75 * cloud);
@@ -443,11 +520,15 @@ export class SceneManager {
     this.sun.intensity = sunLit * sunPeak * lowFade * (1 - 0.3 * rain)
       + (1 - sunLit) * (0.4 + moonLight * .8) * swap * this._moonGraze;
     // Nubes sueltas: su sombra cruza la ciudad despacio. Ni el cielo limpio ni el cerrado la tienen.
-    sunFieldUniforms.uSunCloudShade.value = sunLit * smooth(cloud, 0.16, 0.34) * (1 - smooth(cloud, 0.6, 0.82)) * .74;
+    sunFieldUniforms.uSunCloudShade.value = sunLit * smooth(cloud, 0.12, 0.3) * (1 - smooth(cloud, 0.6, 0.82)) * .85;
     // Los faroles prenden al caer el sol, sin saltos.
-    setNightGlow(1 - smooth(sunAlt, -0.05, 0.07));
+    const lampLevel = 1 - smooth(sunAlt, -.05, .07);
+    const mappedLamps = setStreetLightLevel(this.scene, this.quality === 'alta', lampLevel);
+    setStreetLampTwilight(mappedLamps ? lampLevel : null);
+    // En alta la luz física ya cae en los materiales. Solo queda un toque del rebote pintado.
+    setNightGlow(lampLevel * (mappedLamps ? .14 : 1));
     if (sunLit > 0.02) {
-      this.sun.color.copy(SUN.day).lerp(SUN.low, lowSun * (1 - cloud * .6)).lerp(SUN.overcast, cloud * .5);
+      this.sun.color.copy(SUN.day).lerp(LOW.sun, lowSun * (1 - cloud * .6)).lerp(SUN.overcast, cloud * .5);
       this.sun.color.lerp(SUN.night, 1 - sunLit);
     } else {
       this.sun.color.copy(SUN.night).lerp(SUN.moon, clamp01(moonLight * 2.5));
@@ -458,9 +539,12 @@ export class SceneManager {
     const dayFill = THREE.MathUtils.lerp(1.35 + .25 * cloud, 1.26, clear);
     sunFieldUniforms.uSunLitFloor.value = (1 - sunLit) * .6;
     sunFieldUniforms.uSunSkyFloor.value = THREE.MathUtils.lerp(.62, .4, day);
-    this.ambient.intensity = (THREE.MathUtils.lerp(1.3, dayFill, day) + twilight * .34)
+    // Con el sol bajo todavía arriba el cielo es lo que más alumbra la calle; al ponerse, el relleno vuelve a lo de antes.
+    const lowFill = THREE.MathUtils.lerp(.34, .75, smooth(sunAlt, -0.1, 0.1));
+    this.ambient.intensity = (THREE.MathUtils.lerp(1.3, dayFill, day) + twilight * lowFill)
       * (1 - .06 * rain) + flash * 2.2;
-    this.ambient.color.copy(HEMI.night).lerp(this._tmp.copy(HEMI.dayOvercast).lerp(HEMI.day, clear), day);
+    this.ambient.color.copy(HEMI.night).lerp(this._tmp.copy(HEMI.dayOvercast).lerp(HEMI.day, clear), day)
+      .lerp(LOW.fill, twilight * (1 - cloud));
     this.ambient.groundColor.copy(HEMI.groundNight).lerp(HEMI.groundDay, day);
     this.scene.environmentIntensity = (THREE.MathUtils.lerp(.72, THREE.MathUtils.lerp(.92, .74, clear), day) + twilight * .08 + flash * .5);
     this._updateEnvironment(day);
@@ -470,10 +554,10 @@ export class SceneManager {
     // Colores del cielo: cenit (top) y horizonte (sky = fondo y niebla).
     const top = this._top.copy(SKY.nightTop).lerp(SKY.nightTopOvercast, cloud)
       .lerp(this._tmp.copy(SKY.dayTop).lerp(SKY.dayTopOvercast, cloud), day)
-      .lerp(SKY.twilightTop, twilight * 0.55);
+      .lerp(LOW.top, twilight * 0.55);
     const sky = this._sky.copy(SKY.nightHorizon).lerp(SKY.nightHorizonOvercast, cloud)
       .lerp(this._tmp.copy(SKY.dayHorizon).lerp(SKY.dayHorizonOvercast, cloud), day)
-      .lerp(SKY.twilightHorizon, twilight * 0.6);
+      .lerp(LOW.horizon, twilight * 0.6);
     if (rain > 0.01) {
       top.lerp(SKY.rain, rain * 0.45);
       sky.lerp(SKY.rain, rain * 0.4);
@@ -495,6 +579,7 @@ export class SceneManager {
       }
       this._limitFog(day * clear);
     }
+    this._layFog(day, clear, mist, rain);
 
     setRgb(skyFogUniforms.skyFogLow.value, sky);
     setRgb(skyFogUniforms.skyFogHigh.value, top);
@@ -506,17 +591,17 @@ export class SceneManager {
     u.moonDirection.value.copy(this._moonDir);
     u.moonPhase.value = this._phase;
     u.moonVisibility.value = smooth(moonAlt, -0.02, 0.06) * (0.25 + 0.75 * night);
-    u.sunGlowColor.value.copy(SUN.day).lerp(SUN.low, lowSun);
+    u.sunGlowColor.value.copy(SUN.day).lerp(LOW.sun, lowSun);
     u.sunGlowIntensity.value = (twilight * 1.0 + day * 0.35 * (1 - cloud)) * (1 - rain * 0.85);
     u.sunDisc.value = smooth(sunAlt, -0.02, 0.03) * (1 - rain);
     u.nightFactor.value = night; // las nubes tapan las estrellas en el shader
     u.cityGlow.value = night * (.035 + cloud * .055 + rain * .025);
     u.cloudCover.value = cloud;
     u.flash.value = flash;
-    u.cloudLight.value.copy(CLOUD.nightLight).lerp(CLOUD.dayLight, day).lerp(CLOUD.twilightLight, twilight * 0.45);
+    u.cloudLight.value.copy(CLOUD.nightLight).lerp(CLOUD.dayLight, day).lerp(LOW.cloudLight, twilight * 0.45);
     u.cloudShadow.value.copy(CLOUD.nightShadow)
       .lerp(this._tmp.copy(CLOUD.dayShadow).lerp(CLOUD.overcastShadow, cloud), day)
-      .lerp(CLOUD.twilightShadow, twilight * 0.5)
+      .lerp(LOW.cloudShadow, twilight * 0.5)
       .lerp(CLOUD.rainShadow, rain * 0.6 * day);
     // Lo mismo que la cúpula, sin sus manchas: la niebla no consulta el ruido de las nubes.
     const glow = u.cityGlowColor.value, glowLevel = u.cityGlow.value;
@@ -568,6 +653,27 @@ export class SceneManager {
     const cap = this.quality === 'baja' ? 130 + clearDay * 42 : this.quality === 'media' ? 160 + clearDay * 50 : 230;
     this.scene.fog.far = Math.min(this.scene.fog.far, cap);
     this.scene.fog.near = Math.min(this.scene.fog.near, this.scene.fog.far * .5, this.quality === 'baja' ? 40 + clearDay * 42 : Infinity);
+  }
+
+  /** Bruma acostada, sus dos tonos y la neblina baja de la madrugada: los números de los trozos de niebla. */
+  _layFog(day, clear, mist, rain) {
+    const hour = this._hour ?? 12, lerp = THREE.MathUtils.lerp;
+    // Neblina de sabana: sube antes de amanecer y se levanta a media mañana; el aguacero la barre.
+    const dawn = smooth(hour, 4.2, 5.4) * (1 - smooth(hour, 7.4, 9.2)) * (1 - rain * .7);
+    const layer = skyFogUniforms.skyFogLayer.value;
+    layer.x = 1 / lerp(34, 14, Math.max(dawn, mist));
+    layer.y = .78 * (1 - .45 * rain);
+    // Empieza al 80 % del plano lejano y llega a 1 al 98,5 %: lo alto nunca se corta a la vista.
+    layer.z = 5.3 / (.985 * (FOG_CUT[this.quality] ?? FOG_CUT.alta));
+    layer.w = Math.min(.8, dawn * .62 + mist * .5);
+    // En baja la bruma cercana queda donde está: de ella depende hasta dónde se dibujan peatones y bolsas.
+    if (this.scene.fog && this.quality !== 'baja') this.scene.fog.near *= 1 - .4 * layer.w;
+    const cool = skyFogUniforms.skyFogCool.value, veil = skyFogUniforms.skyFogVeil.value;
+    cool.r = lerp(.1, lerp(.34, .46, clear), day);
+    cool.g = lerp(.05, lerp(.21, .26, clear), day);
+    cool.b = lerp(0, lerp(.07, .03, clear), day);
+    const sodium = (1 - day) * (1 - .4 * rain);
+    veil.r = .13 * sodium; veil.g = .058 * sodium; veil.b = 0;
   }
 
   /**

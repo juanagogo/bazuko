@@ -80,12 +80,14 @@ test('postes, bancas y puestos dejan su mancha, y la penumbra se apaga hacia afu
   assert.equal(caidaContacto(0), 1);
   assert.equal(caidaContacto(1), 0);
   assert.ok(caidaContacto(.4) > caidaContacto(.7));
+  assert.ok(CONTACTO.noche < CONTACTO.dia && CONTACTO.dia <= .7, 'de noche pesa menos y de día no tapa el piso');
 });
 
 test('la opacidad sigue la hora de la escena', () => {
   const { group } = armar(district());
   const mesh = group.children[0];
   mesh.onBeforeRender(null, { userData: { environmentDay: 0 } });
+  assert.equal(mesh.material.opacity, CONTACTO.noche);
   mesh.onBeforeRender(null, { userData: { environmentDay: 1 } });
   assert.ok(Math.abs(mesh.material.opacity - CONTACTO.dia) < 1e-9);
 });

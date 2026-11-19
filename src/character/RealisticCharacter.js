@@ -570,6 +570,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   return {
     group,
     animationProfile: profile.id,
+    sampleSoleContacts(contacts) { inst?.actionPose.sampleSoleContacts(contacts); },
     get animationStatus() {
       const actions = Object.entries(inst?.actions ?? {});
       return {

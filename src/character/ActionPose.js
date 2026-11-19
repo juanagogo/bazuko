@@ -392,6 +392,35 @@ export class ActionPose {
     return footSupport;
   }
 
+  /** Centro y orientación de cada suela en la pose visible para la oclusión de contacto. */
+  sampleSoleContacts(contacts, shoes) {
+    if (!this.frame) return;
+    const scale = this.frame.getWorldScale(this._position);
+    const soleHeight = shoes === 'botas' ? -.0525 : shoes === 'chanclas' ? -.0425 : -.05;
+    for (let i = 0; i < this._legs.length; i++) {
+      const { foot, toe } = this._legs[i], contact = contacts[i];
+      if (!foot || (!toe && !this.procedural)) continue;
+      const center = contact.center;
+      let dx, dz;
+      if (this.procedural) {
+        const lengthOffset = shoes === 'botas' ? .012 : .017;
+        foot.localToWorld(center.set(0, soleHeight, lengthOffset));
+        const tip = foot.localToWorld(this._stepToe.set(0, soleHeight, lengthOffset + .12));
+        dx = tip.x - center.x; dz = tip.z - center.z;
+      } else {
+        const ankle = foot.getWorldPosition(this._ankle), tip = toe.getWorldPosition(this._stepToe);
+        center.lerpVectors(ankle, tip, .38);
+        center.y = Math.min(ankle.y - .068 * scale.y, tip.y - .028 * scale.y);
+        dx = tip.x - ankle.x; dz = tip.z - ankle.z;
+      }
+      if (dx * dx + dz * dz < .0001) continue;
+      contact.valid = true;
+      contact.yaw = Math.atan2(dx, dz);
+      contact.width = .104 * scale.x;
+      contact.length = .182 * scale.z;
+    }
+  }
+
   /** Ajusta la zancada al escalón que tiene cada zapato debajo, después de componer el apoyo plano. */
   fitFeetToSteps(sample, groundY) {
     this._forward.set(0, 0, 1).applyQuaternion(this._frameQ);

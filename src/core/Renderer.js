@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mapeoDeGrado } from './gradoColor.js';
 import { PlayerSilhouette } from './PlayerSilhouette.js';
 import { AdaptiveResolution } from './AdaptiveResolution.js';
 import { FrustumCulling } from './FrustumCulling.js';
@@ -191,8 +192,8 @@ export class Renderer {
     this.instance.shadowMap.enabled = true;
     this.instance.shadowMap.type = THREE.PCFShadowMap;
 
-    // Look realista: tone mapping fílmico
-    this.instance.toneMapping = THREE.ACESFilmicToneMapping;
+    // Look realista: curva fílmica con el grado de color propio (gradoColor.js)
+    this.instance.toneMapping = mapeoDeGrado();
     this.instance.toneMappingExposure = 1.05;
     this.instance.outputColorSpace = THREE.SRGBColorSpace;
     this.silhouette = new PlayerSilhouette();

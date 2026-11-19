@@ -2,8 +2,10 @@ import { planUrbanBuildings, buildUrbanBuilding, URBAN_DESIGNS } from '../bogota
 import { neighborhoodAt, isShopFront } from '../bogota/NeighborhoodIdentity.js';
 import { addBuildingDetails } from '../bogota/BuildingDetails.js';
 import { addStreetDetails } from '../bogota/StreetDetails.js';
+import { setStreetLightLevel } from '../bogota/StreetLightShader.js';
 import { streetIntersections, pedestrianCrossings, crossingTiles } from '../bogota/StreetCrossings.js';
 import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
+import { setFloorWetness, wetsWithRain } from '../bogota/StreetPuddles.js';
 import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
 import { planParkVegetation, buildParkVegetation } from '../bogota/ParkVegetation.js';
 import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
@@ -22,6 +24,7 @@ import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
 // bodega de reciclaje (x 8-21, z 32-46), parque (x 28-39, z 32-46), lote baldío con el
 // cambuche (x 42-46, z 32-46) y la tienda (frente a la Calle 9, x 34).
 import * as THREE from 'three';
+import { buildRainCover } from '../RainCover.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
@@ -57,7 +60,7 @@ import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSector
 import { withVisualRandom } from '../bogota/VisualRandom.js';
 import { buildCalle72Landing, onCalle72Landing } from '../bogota/Calle72Landing.js';
 import { calle72DestinationBarrier } from '../bogota/Calle72Approach.js';
-import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
+import { setStreetLampTwilight, updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
   expandCity, inUrbanPark, parkBenchBays } from '../bogota/CityLayout.js';
@@ -141,6 +144,18 @@ function worldUVs(geo, sx, sy, sz, units) {
 const repeatAll = (t) => { if (!t) return t; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 1); t.anisotropy = 8; t.needsUpdate = true; return t; };
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const W = (t) => t * T; // tile → metros (centro del tile)
+
+function lightFacades(district) {
+  const amount = district.scene?.userData?.streetLightMap?.windowLevel ?? (district._nightMode ? 1 : 0);
+  const level = Math.round(amount * 255) / 255;
+  if (level === district._facadeLightLevel) return;
+  district._facadeLightLevel = level;
+  for (const material of district.towerLights ?? []) material.emissiveIntensity = .05 + 1.75 * level;
+  for (const material of district.facadeMats ?? []) material.emissiveIntensity = level * (material.userData.windowGlow ?? 1.2);
+  for (const material of district.buildingVisibility?.closedMaterials?.values() ?? []) {
+    if (material.emissiveMap || material.userData.windowGlow) material.emissiveIntensity = level * (material.userData.windowGlow ?? 1.2);
+  }
+}
 
 export class Bogota {
   constructor() {
@@ -248,7 +263,8 @@ export class Bogota {
     this._buildLakePark();
     this._buildGreenery();
     this.group.add(buildAvenueOverpass());
-    this.group.add(buildGasStation({ createSign: signTexture }));
+    const gasStation = buildGasStation({ createSign: signTexture });
+    this.group.add(gasStation);
     this.group.add(buildD69Store({ createSign: signTexture }));
     this.group.add(buildSmallBuilding({ brickTextures: TX.brick(53) }));
     const tower = buildColpatria({ createSign: signTexture });
@@ -258,6 +274,7 @@ export class Bogota {
     // Viaducto y tren de pruebas de la Caracas.
     const metro = buildMetroBogota({ pavement: this.groundMaterials.road, waterBottomAt: (x, z) => this.getWaterInfo(x, z)?.bottomY });
     this.group.add(metro);
+    this.rainCover = buildRainCover(viaduct, this.stationGroup, gasStation, metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
     }
@@ -609,16 +626,17 @@ export class Bogota {
     this.isRaining = amount > 0.05;
     if (!this.groundMaterials) return;
     const wet = THREE.MathUtils.clamp(amount, 0, 1) * (this.graphicsQuality === 'baja' ? .65 : 1);
+    setFloorWetness(wet);
     this.stationGroup?.userData.setWetness?.(wet);
     if (this.groundMaterials.road) {
-      this.groundMaterials.road.roughness = THREE.MathUtils.lerp(0.82, 0.48, wet);
+      this.groundMaterials.road.roughness = THREE.MathUtils.lerp(0.82, 0.32, wet);
       this.groundMaterials.road.metalness = 0;
-      this.groundMaterials.road.envMapIntensity = THREE.MathUtils.lerp(0.3, 1.05, wet);
+      this.groundMaterials.road.envMapIntensity = THREE.MathUtils.lerp(0.3, 1.3, wet);
     }
     if (this.groundMaterials.busway) {
-      this.groundMaterials.busway.roughness = THREE.MathUtils.lerp(1.0, 0.6, wet);
+      this.groundMaterials.busway.roughness = THREE.MathUtils.lerp(1.0, 0.48, wet);
       this.groundMaterials.busway.metalness = 0;
-      this.groundMaterials.busway.envMapIntensity = THREE.MathUtils.lerp(0.25, .85, wet);
+      this.groundMaterials.busway.envMapIntensity = THREE.MathUtils.lerp(0.25, 1.0, wet);
     }
     for (const [name, material] of Object.entries(this.groundMaterials)) {
       const pavement = name.startsWith('sidewalk') || name.startsWith('plaza') || name === 'floor';
@@ -629,14 +647,15 @@ export class Bogota {
         material.envMapIntensity = THREE.MathUtils.lerp(.25, 1.1, wet);
       }
       if (pavement) {
-        material.roughness = THREE.MathUtils.lerp(.85, .63, wet);
+        material.roughness = THREE.MathUtils.lerp(.85, .42, wet);
         material.metalness = 0;
-        material.envMapIntensity = THREE.MathUtils.lerp(.2, .65, wet);
+        material.envMapIntensity = THREE.MathUtils.lerp(.2, .95, wet);
       }
-      if (pavement || name === 'road' || name === 'busway' || name === 'road_cobbles') {
+      if (wetsWithRain(name)) {
         // Conservar el acabado seco para que alternar lluvia no acumule oscurecimiento.
         material.userData.dryColor ??= material.color.clone();
-        material.color.copy(material.userData.dryColor).multiplyScalar(1 - wet * .09);
+        // El piso mojado se oscurece de verdad: casi un cuarto, la calzada un poco más que el andén.
+        material.color.copy(material.userData.dryColor).multiplyScalar(1 - wet * (pavement ? .24 : .26));
       }
     }
   }
@@ -774,6 +793,7 @@ export class Bogota {
   /** Luz del farol colonial: el mismo tipo de fuente que los faroles de calle, sin luces nuevas en la escena. */
   _addLanternLight(position) {
     const light = new THREE.PointLight(0xffd29a, 0, 9);
+    light.userData.streetFixture = true;
     light.position.copy(position);
     light.userData.noMerge = true;
     this.group.add(light);
@@ -1707,6 +1727,7 @@ export class Bogota {
 
   update(dt, playerPos, camera, trafficVehicles = []) {
     this.t += dt;
+    lightFacades(this);
     P.foliageWind.value = this.t;
     this.signals?.update(this.t);
     if (camera) this.signals?.updateDetail(camera.position, !!this.farDetailFog);
@@ -1739,20 +1760,25 @@ export class Bogota {
   }
 
   setNightMode(isNight) {
-    for (const material of this.towerLights ?? []) material.emissiveIntensity = isNight ? 1.8 : .05;
+    this._nightMode = !!isNight;
+    lightFacades(this);
     for (const p of this.props) p.instance.setNight?.(isNight);
-    for (const m of this.facadeMats) m.emissiveIntensity = isNight ? (m.userData.windowGlow ?? 1.2) : 0;
     this.cerros?.userData?.setNight?.(isNight);
     for (const bus of this.busServices ?? []) bus.setNight?.(isNight);
     this.stationGroup?.userData.setNight?.(isNight);
-    for (const material of this.buildingVisibility.closedMaterials.values()) {
-      if (material.emissiveMap || material.userData.windowGlow) material.emissiveIntensity = isNight ? (material.userData.windowGlow ?? 1.2) : 0;
-    }
   }
 
   dispose(scene) {
     if (this._disposed) return;
     this._disposed = true;
+    if (scene.userData?.streetLightMap) {
+      scene.userData.streetLightMap.texture.dispose();
+      delete scene.userData.streetLightMap;
+      setStreetLightLevel(scene, false, 0);
+      setStreetLampTwilight(null);
+    }
+    this.rainCover?.dispose();
+    this.rainCover = null;
     this._releaseStationCameraCeiling?.();
     const textures = new Set(), ownedTextures = new Set();
     const rememberTexture = value => {
