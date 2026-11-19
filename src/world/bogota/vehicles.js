@@ -273,7 +273,7 @@ function pickModel(kind, seed, h) {
 
 /**
  * Frente +X. Cada modelo tiene su propia huella: tráfico y colisiones leen length y width.
- * Con `parked` el carro no animará nunca sus ruedas ni sus plumillas: van unidas a las molduras y no hay piezas que girar.
+ * En un parqueado las ruedas y las plumillas van unidas a las molduras hasta que se activa la suspensión física.
  */
 export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model = null, parked = false, ownMaterials = false, variante = '' } = {}) {
   const seed = Number.isFinite(seedColor) ? Math.abs(Math.trunc(seedColor)) : 0, h = mix(seed), s = shared();
@@ -325,13 +325,16 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   for (const wiper of wipers) bodyVisual.add(wiper.parent);
 
   const wheels = [], frontWheelPivots = [], r = spec.r;
-  if (!parked) for (const [x, z, sideZ] of wheelSeats(spec, body)) {
-    const pivot = new THREE.Group(); pivot.position.set(x, r, z); pivot.name = x > 0 && x === spec.axleF ? 'Eje delantero dirigible' : 'Eje trasero';
-    const wheel = new THREE.Mesh(sideZ > 0 ? geo.wheelRight : geo.wheelLeft, trim); wheel.name = 'Rueda'; wheel.castShadow = wheel.receiveShadow = true;
-    wheel.userData.radius = r; wheel.userData.front = x === spec.axleF;
-    pivot.add(wheel); group.add(pivot); wheels.push(wheel);
-    if (x === spec.axleF) frontWheelPivots.push(pivot);
+  function montarRuedas() {
+    for (const [x, z, sideZ] of wheelSeats(spec, body)) {
+      const pivot = new THREE.Group(); pivot.position.set(x, r, z); pivot.name = x > 0 && x === spec.axleF ? 'Eje delantero dirigible' : 'Eje trasero';
+      const wheel = new THREE.Mesh(sideZ > 0 ? geo.wheelRight : geo.wheelLeft, trim); wheel.name = 'Rueda'; wheel.castShadow = wheel.receiveShadow = true;
+      wheel.userData.radius = r; wheel.userData.front = x === spec.axleF;
+      pivot.add(wheel); group.add(pivot); wheels.push(wheel);
+      if (x === spec.axleF) frontWheelPivots.push(pivot);
+    }
   }
+  if (!parked) montarRuedas();
 
   const flareMesh = new THREE.Mesh(geo.flares, s.flare);
   flareMesh.name = 'Resplandor de faro'; flareMesh.userData.vehicleGlow = true; flareMesh.castShadow = false; flareMesh.renderOrder = 3;
@@ -362,10 +365,28 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   // Piezas que se apagan de lejos: el carro lejano se queda con su chapa, sus lámparas y su resplandor.
   const details = [trimMesh, glassMesh, ...wheels];
 
+  function separarRuedas(separar) {
+    if (!parked || separar === (wheels.length > 0)) return;
+    if (separar) {
+      trimMesh.geometry = geo.trim;
+      montarRuedas();
+      for (const rueda of wheels) rueda.visible = trimMesh.visible;
+      details.push(...wheels);
+      wipers.push(...makeWipers(spec, body, geo.wiper, trim));
+      for (const plumilla of wipers) bodyVisual.add(plumilla.parent);
+    } else {
+      trimMesh.geometry = getParkedTrim(geo);
+      for (const rueda of wheels) rueda.parent.removeFromParent();
+      for (const plumilla of wipers) plumilla.parent.removeFromParent();
+      details.splice(details.indexOf(wheels[0]), wheels.length);
+      wheels.length = frontWheelPivots.length = wipers.length = 0;
+    }
+  }
+
   return {
     group, length: L, width: W, height: spec.H, model: modelId, wheels, tailMat, get beam() { return beam; }, prepararHaz,
     flares: [flareMesh], policeLights, dispose,
-    asientosRuedas: () => wheelSeats(spec, body),
+    separarRuedas, asientosRuedas: () => wheelSeats(spec, body),
     frontWheelPivots, bodyVisual, signalMaterials, wipers, visualManaged: true, wheelRadius: r, wheelbase: spec.wb,
     perfilRueda: geo.wheelRight.userData.perfilApoyo,
     mirrorAnchors: geo.mirrorAnchors.map(anchor => anchor.clone()), mirrorGeometry: geo.mirror, trimMaterial: trim,
