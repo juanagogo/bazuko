@@ -160,6 +160,7 @@ Cómo se contiene el costo:
 - La luz de los locales no suma pedidos: la máscara de las vitrinas es una textura de 1024 × 512 (unos 2,8 MB con mipmaps) y la mancha del andén va en el lote de la luz de faroles (2.996 triángulos en toda la ciudad, en los mismos 9 trozos). Los bombillos del mercado son 1 pedido, 1 material y 624 triángulos, solo cerca de la plaza. Hasta tres programas más.
 - El material de las azoteas suma 18.532 triángulos a la ciudad (+1,2 %), sin pedidos ni texturas.
 - La gasolinera suma dos mallas que la ciudad no funde (2 pedidos en la pasada principal) y nueve texturas de canvas, unos 10 MB con mipmaps; pasa de 1.132 a 3.418 triángulos. Los bordes de isla y las vitrinas no dan sombra.
+- El mapa de mugre del articulado pasa de 512 × 256 a 1024 × 512 (unos 2 MB más con mipmaps, una sola copia para los dos buses); cada bus suma 28 triángulos, el escape, y ningún pedido.
 - El Portal suma una textura de 1024 × 1024, su hoja de acabados, y los conos de los cierres pasan de 4 a unos 66 triángulos: de +0,5 a +0,8 % de triángulos en los puntos del Portal y de los cierres, sin pedidos.
 - De noche el Portal suma un pedido: los charcos de luz del andén y del carril, que antes no llegaban a la escena, y su programa se compila al cargar.
 - La flota mojada y sucia no suma pedidos, texturas ni programas: cada tono lleva cuatro esmaltes en vez de tres y los mapas de detalle llevan más trazos al pintarse al cargar (sin medir).

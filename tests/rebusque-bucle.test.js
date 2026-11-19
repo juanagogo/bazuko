@@ -60,7 +60,8 @@ function partida({ malabares = true } = {}) {
   if (malabares) inventory.add(ITEMS.malabares, 1);
   const stats = { dinero: 0, energia: 100, salud: 100, animo: 50, higiene: 80, addXP() {}, update() {} };
   // Quieto en su sitio: a pie, el bucle lo mueve con update.
-  const player = { position: new THREE.Vector3(x0 + 3.2, 0, z), root: new THREE.Object3D(), update() {}, faceTowards() {}, action: null,
+  const player = { position: new THREE.Vector3(x0 + 3.2, 0, z), root: new THREE.Object3D(), action: null,
+    update() {}, updateBicyclePose() {}, updateCartPose() {}, faceTowards() {},
     playAction(a, d) { this.action = a; this.actionTimer = d; } };
   const pendientes = new Set();
   const game = new Game(doble);

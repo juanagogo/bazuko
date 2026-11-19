@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
 import { animationDamping } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
+import { BicyclePose } from './bicyclePose.js';
 import { airborneStride, hardLanding } from './jumpMotion.js';
 import { criticalSpring, spring } from './springs.js';
 import { createWeapon } from './props.js';
@@ -382,6 +383,15 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     rightUpLeg: legs[1].hip, rightLeg: legs[1].knee,
     leftFoot: legs[0].foot, rightFoot: legs[1].foot };
   const actionPose = new ActionPose(ragdollRig, { procedural: true });
+  const hands = {};
+  for (const [i, side] of ['left', 'right'].entries()) {
+    const hand = new THREE.Object3D();
+    hand.name = `${side}Hand`;
+    hand.position.y = -.2; // centro de la mano dibujada en el antebrazo
+    arms[i].elbow.add(hand);
+    hands[side] = hand;
+  }
+  const bicyclePose = new BicyclePose(actionPose, { hands });
   let weapon = null, weaponId = null, disposed = false;
   function setWeapon(id) {
     if (weaponId === id) return;
@@ -431,6 +441,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
 
   function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
     if (disposed) return;
+    bicyclePose.restore();
     actionPose.restore();
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     speed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
@@ -471,7 +482,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         stepFoot = left <= right ? 1 : -1;
         step = Math.min(step * 1.8, airborneStride(Math.min(left, right), toGround, dt, movement.verticalVelocity, movement.launchSpeed > 0) * dt);
       }
-      phase = (phase + step) % (Math.PI * 2);
+      phase = movement.cartBacking ? THREE.MathUtils.euclideanModulo(phase - step, Math.PI * 2) : (phase + step) % (Math.PI * 2);
       const s = Math.sin(phase);
       // La rodilla se recoge durante el paso de recuperación y cede al apoyar.
       const leftSwing = Math.max(0, -Math.cos(phase));
@@ -676,6 +687,16 @@ export function createCharacter(initial = DEFAULT_LOOK) {
   return {
     group: root,
     sampleSoleContacts(contacts) { actionPose.sampleSoleContacts(contacts, look.zapatos); },
+    fitBicycle(bike) {
+      bicyclePose.fit(bike, look.zapatos);
+      if (weapon) weapon.object.visible = false;
+      if (cigarette) cigarette.object.visible = false;
+      if (basucoProps) basucoProps.pipe.object.visible = basucoProps.lighter.object.visible = false;
+    },
+    fitCart(cart) {
+      bicyclePose.fitCart(cart);
+      if (weapon) weapon.object.visible = false;
+    },
     ragdollRig,
     get look() { return look; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */

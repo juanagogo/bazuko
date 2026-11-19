@@ -5,10 +5,8 @@
 import * as THREE from 'three';
 import { drawOptics } from './carLamps.js';
 import { drawUpholstery } from './carUpholstery.js';
-import { BUS_LIBREAS, TAXI_EMPRESAS, drawBusConduzco, drawBusLivery, drawBusRoute, drawTaxiCompany, drawTaxiDoor, drawTaxiRoof, drawTaxiSign } from './carLibreas.js';
+import { BUS_LIBREAS, TAXI_EMPRESAS, drawBusConduzco, drawBusDoor, drawBusLivery, drawBusRoute, drawTaxiCompany, drawTaxiDoor, drawTaxiRoof, drawTaxiSign } from './carLibreas.js';
 
-// Azul de la franja de las busetas: el letrero y la textura de detalle deben dar el mismo tono.
-export const BUS_BLUE = '#1b4a8c';
 export const ATLAS_SIZE = 1024;
 // Cuatro pisos: arriba lo común a toda la flota, luego las ópticas y parrillas propias de cada modelo (carLamps.js), el
 // dibujo de día de los faros, que por la noche no se usa, y al final las libreas de buseta, una fila de 64 px por ruta.
@@ -131,7 +129,7 @@ export const RECT = Object.freeze({
   route3: [640, 960, 256, 64],
   sticker: [896, 768, 128, 128],
   seat: [0, 896, 64, 64],
-  busName: [64, 904, 256, 56],
+  busDoor: [64, 896, 256, 64],
   // Entre la rejilla de placas y la de puertas de los taxis.
   taxiEmpresa0: [0, 128, 256, 64],
   taxiEmpresa1: [256, 128, 256, 64],
@@ -608,13 +606,7 @@ export function drawAtlas(ctx) {
   ctx.fillStyle = '#111';
   for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) if ((i + j) % 2) ctx.fillRect(kx + i * kw / 6, ky + j * kh / 6, kw / 6, kh / 6);
   drawUpholstery(ctx, RECT);
-  // Rótulo genérico de la buseta: nombre inventado, se lee como el de una cooperativa cualquiera.
-  const [nx, ny, nw, nh] = RECT.busName;
-  // Sobre la franja de la buseta: del mismo azul, para que solo se lea el letrero.
-  ctx.fillStyle = BUS_BLUE; ctx.fillRect(nx, ny, nw, nh);
-  ctx.fillStyle = '#f4f2ea'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 21px sans-serif'; ctx.fillText('RUTAS DE LA CAPITAL', nx + nw / 2, ny + 19);
-  ctx.font = '800 13px sans-serif'; ctx.fillText('SERVICIO URBANO · 19 PASAJEROS', nx + nw / 2, ny + 42);
+  drawBusDoor(ctx, RECT.busDoor);
   drawBusConduzco(ctx, RECT.busConduzco);
   for (const [route, librea] of BUS_LIBREAS.entries()) {
     const row = ([x, y, w, h]) => [x, y + route * 64, w, h];
