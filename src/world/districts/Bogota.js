@@ -50,6 +50,7 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
+import { withVisualRandom } from '../bogota/VisualRandom.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
@@ -1564,32 +1565,41 @@ export class Bogota {
     const buckets = new Map();
     const replacedGeometries = new Set();
     const replacedMaterials = new Set();
-    const visit = (o) => {
-      if (o.userData.update || o.userData.noMerge) return; // animados y faroles quedan aparte
+    const visit = (o, local = null) => {
+      if (o.userData.noMerge) return;
+      if (o.userData.update) {
+        if (!o.userData.mergeChildren) return;
+        // Una rama móvil con piezas rígidas puede fundirse en su propio sistema de coordenadas.
+        local = { root: o, inverse: o.matrixWorld.clone().invert() };
+      }
       if (o.isMesh && !Array.isArray(o.material) && !o.isSkinnedMesh && !o.isInstancedMesh) {
         if (!o.geometry.attributes.uv || !o.geometry.attributes.normal) return;
         // Conserva los índices: expandir cajas y planos duplicaba sus vértices.
-        const g = o.geometry.clone();
+        const clone = () => o.geometry.clone();
+        const g = o.userData.visualOnly ? withVisualRandom(clone) : clone();
         for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'treeWind'].includes(name)) g.deleteAttribute(name);
         const attributes = Object.keys(g.attributes).sort().map(name => {
           const a = g.attributes[name];
           return `${name}:${a.itemSize}:${a.array.constructor.name}:${a.normalized}`;
         }).join(',');
         // Como los lotes cerrados, por trozos anchos: mobiliario y ladrillos pesan en llamadas, no en triángulos.
-        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}`;
+        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}|${local?.root.id ?? ''}`;
         g.applyMatrix4(o.matrixWorld);
-        const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [] };
+        if (local) g.applyMatrix4(local.inverse);
+        const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [], visualOnly: true, parent: local?.root ?? this.group };
         buckets.set(key, bucket);
+        bucket.visualOnly &&= o.userData.visualOnly === true;
         bucket.list.push(g);
         bucket.sources.push(o);
         return;
       }
       if (o.isMesh && !o.isSkinnedMesh) o.matrixAutoUpdate = false;
-      for (const c of o.children) visit(c);
+      for (const c of o.children) visit(c, local);
     };
     for (const c of this.group.children) visit(c);
-    for (const { mat, cast, recv, list, sources } of buckets.values()) {
-      const merged = mergeGeometries(list);
+    for (const { mat, cast, recv, list, sources, visualOnly, parent } of buckets.values()) {
+      const merge = () => mergeGeometries(list);
+      const merged = visualOnly ? withVisualRandom(merge) : merge();
       for (const geometry of list) geometry.dispose();
       if (!merged) continue;
       for (const source of sources) {
@@ -1597,7 +1607,9 @@ export class Bogota {
         replacedGeometries.add(source.geometry);
         replacedMaterials.add(source.material);
       }
-      const mesh = new THREE.Mesh(merged, mat);
+      const create = () => new THREE.Mesh(merged, mat);
+      const mesh = visualOnly ? withVisualRandom(create) : create();
+      if (visualOnly) mesh.userData.visualOnly = true;
       mesh.customDepthMaterial = sources[0].customDepthMaterial; // mismo material, misma sombra
       if (merged.hasAttribute('treeWind')) {
         // Después de geometryChunk: el recálculo de bounds no debe borrar el margen de viento.
@@ -1607,7 +1619,7 @@ export class Bogota {
       mesh.castShadow = cast;
       mesh.receiveShadow = recv;
       mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
+      parent.add(mesh);
     }
     // Una geometría compartida por objetos animados sigue en uso.
     this.group.traverse((o) => {

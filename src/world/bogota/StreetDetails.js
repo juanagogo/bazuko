@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { buildSunField, chainSunField, fadeGlowInFog, registerNightGlow } from './SunField.js';
+import { addContactShade } from './sombraContacto.js';
 import { STATIC_CHUNK_SIZE, createRenderSectors, freezeStaticTransforms } from './StaticGeometry.js';
 import { StreetBatch, WireBatch, tint, unit } from './StreetBatch.js';
 import { crossings } from './StreetMarkings.js';
@@ -645,6 +646,7 @@ export function addStreetDetails(district, collisions = null) {
   addLampGlow(glow, district);
   addLanternPools(glow, district);
   registerNightGlow(glowMaterial);
+  addContactShade(district, poles);
 
   const group = new THREE.Group();
   group.name = 'Calle: cables y mobiliario';

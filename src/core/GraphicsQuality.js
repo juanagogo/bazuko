@@ -1,15 +1,22 @@
+export const DEFAULT_GRAPHICS_QUALITY = 'baja';
+
 export const GRAPHICS_PROFILES = Object.freeze({
   // farDetailFog: en qué punto de la niebla (0 empieza, 1 tapa todo) dejan de dibujarse peatones y bolsas lejanos.
   // shadowEvery: cada cuántas imágenes se vuelve a pintar la sombra del sol. Baja no tiene sombras.
   baja: { pixelRatio: .85, shadowSize: 0, silhouette: false, animationBudget: 3, far: 180, farDetailFog: .7 },
   media: { pixelRatio: 1.25, shadowSize: 1024, shadowEvery: 2, silhouette: true, animationBudget: 2, far: 220 },
-  alta: { pixelRatio: 1.5, shadowSize: 2048, shadowEvery: 1, silhouette: true, animationBudget: 1, far: 300 }
+  alta: { pixelRatio: 2, shadowSize: 4096, shadowEvery: 1, silhouette: true, animationBudget: 1, far: 300 }
 });
 
 // El contexto no se puede cambiar después: quien ya eligió baja se queda sin MSAA.
 export const antialiasFor = saved => saved !== 'baja';
 
-export function effectiveQuality(selected = 'alta', pressure = 0, autoTier = 0) {
+export function initialGraphicsQuality(saved, requested) {
+  if (Object.hasOwn(GRAPHICS_PROFILES, requested)) return requested;
+  return Object.hasOwn(GRAPHICS_PROFILES, saved) ? saved : DEFAULT_GRAPHICS_QUALITY;
+}
+
+export function effectiveQuality(selected = DEFAULT_GRAPHICS_QUALITY, pressure = 0, autoTier = 0) {
   const levels = ['baja', 'media', 'alta'];
   const base = Math.min(levels.length - 1, Math.max(0, levels.indexOf(selected)) + autoTier);
   return levels[Math.max(0, base - pressure)];

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 import { sunDirection, moonDirection, moonPhase, moonIllumination } from '../world/Climate.js';
 import { setNightGlow, setSunFieldLight, sunFieldUniforms } from '../world/bogota/SunField.js';
 
@@ -343,13 +344,14 @@ export class SceneManager {
     this.sun = new THREE.DirectionalLight(0xffedd8, 1.2);
     this.sun.position.set(50, 80, 30);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.setScalar(GRAPHICS_PROFILES.alta.shadowSize);
     this.sun.shadow.camera.near = 1;
     this.sun.shadow.camera.far = 200;
     this.sun.shadow.camera.left = -45;
     this.sun.shadow.camera.right = 45;
     this.sun.shadow.camera.top = 45;
     this.sun.shadow.camera.bottom = -45;
+    this.sun.shadow.camera.updateProjectionMatrix();
     this.sun.shadow.bias = -0.0002;
     this.sun.shadow.normalBias = 0.035;
     this.scene.add(this.sun);
@@ -364,6 +366,8 @@ export class SceneManager {
     this._sunDir = new THREE.Vector3(0, 1, 0);
     this._moonDir = new THREE.Vector3(0, 1, 0);
     this._lightDir = new THREE.Vector3(0, 1, 0);
+    this._shadowRight = new THREE.Vector3();
+    this._shadowUp = new THREE.Vector3();
     this._celestialKey = '';
     this._wind = new THREE.Vector2();
     this._legacyWeather = { cloudCover: .85, rainIntensity: 0, fogDensity: 1, flash: 0, wind: null };
@@ -527,12 +531,12 @@ export class SceneManager {
   setQuality(level = 'alta') {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
     level = this.quality;
-    const size = level === 'media' ? 1024 : 2048;
-    if (this.sun.shadow.mapSize.x !== size) {
+    const size = GRAPHICS_PROFILES[level].shadowSize;
+    if (!size || this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.map?.dispose();
       this.sun.shadow.mapPass?.dispose();
       this.sun.shadow.map = this.sun.shadow.mapPass = null;
-      this.sun.shadow.mapSize.set(size, size);
+      if (size) this.sun.shadow.mapSize.set(size, size);
       this.sun.shadow.needsUpdate = true;
     }
     if (level === 'baja') {
@@ -543,14 +547,12 @@ export class SceneManager {
       }
     } else if (level === 'media') {
       this.sun.castShadow = true;
-      this.sun.shadow.mapSize.set(1024, 1024);
       if (this.scene.fog) {
         this.scene.fog.near = 45;
         this.scene.fog.far = 160;
       }
     } else {
       this.sun.castShadow = true;
-      this.sun.shadow.mapSize.set(2048, 2048);
     }
     // La cúpula se dibuja en el plano lejano en todas las calidades; baja usa menos octavas de nubes.
     if (this.skyDome) {
@@ -579,8 +581,21 @@ export class SceneManager {
   /** La luz direccional (y su caja de sombras) sigue al jugador para sombras nítidas en un mapa grande */
   followTarget(pos, hour = this._hour ?? 12) {
     this._celestial(hour);
-    this.sun.target.position.copy(pos);
-    this.sun.position.copy(this._lightDir).multiplyScalar(90).add(pos);
+    const target = this.sun.target.position.copy(pos);
+    if (this.quality === 'alta') {
+      // Desplazar una fracción de texel mueve la sombra sobre la ropa y los bordillos al caminar.
+      // Ajustamos el centro en el plano de la luz. Se conserva el rumbo del sol y de la luna.
+      const shadow = this.sun.shadow;
+      const right = this._shadowRight.crossVectors(shadow.camera.up, this._lightDir);
+      if (right.lengthSq() < 1e-10) right.set(1, 0, 0);
+      right.normalize();
+      const up = this._shadowUp.crossVectors(this._lightDir, right);
+      const texel = (shadow.camera.right - shadow.camera.left) / shadow.mapSize.x;
+      const x = right.dot(pos), y = up.dot(pos);
+      target.addScaledVector(right, Math.round(x / texel) * texel - x);
+      target.addScaledVector(up, Math.round(y / texel) * texel - y);
+    }
+    this.sun.position.copy(this._lightDir).multiplyScalar(90).add(target);
 
     if (this.skyDome) this.skyDome.position.set(pos.x, 0, pos.z);
   }

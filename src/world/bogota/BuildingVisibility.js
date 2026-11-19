@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { STATIC_CHUNK_SIZE, geometryChunk } from './StaticGeometry.js';
+import { withVisualRandom } from './VisualRandom.js';
 
 const WALL_FACES = [0, 1, 4, 5];
 const LOW_WALL_HEIGHT = 0.65;
@@ -123,20 +124,31 @@ export class BuildingVisibility {
     const makePart = (object, roof) => {
       // Cada pieza tiene materiales propios: atenuar una pared no cambia las demás casas.
       const clones = new Map();
-      object.traverse(mesh => {
-        if (!mesh.isMesh) return;
+      const meshes = [];
+      object.traverse(mesh => { if (mesh.isMesh) meshes.push(mesh); });
+      const originalKeys = new Set();
+      for (const mesh of meshes) {
+        if (mesh.userData.visualOnly) continue;
+        for (const material of [mesh.material].flat()) originalKeys.add(`${material.uuid}:${mesh.userData.visibilitySide ?? THREE.DoubleSide}`);
+      }
+      for (const mesh of meshes) {
         const clone = material => {
           const side = mesh.userData.visibilitySide ?? THREE.DoubleSide;
           const key = `${material.uuid}:${side}`;
           if (!clones.has(key)) {
-            const copy = material.clone();
+            const visualOnly = !originalKeys.has(key);
+            const newMaterial = () => material.clone();
+            const copy = visualOnly ? withVisualRandom(newMaterial) : newMaterial();
             copy.side = side;
             copy.userData.staticBatchKey = key;
             // Lo de fábrica: una mancha de humedad ya es transparente y debe volver a serlo tras atenuarse.
             copy.userData.fadeBase = { transparent: material.transparent, depthWrite: material.depthWrite, opacity: material.opacity };
-            if (!this.closedMaterials.has(key)) {
-              const closed = material.clone();
+            const previous = this.closedMaterials.get(key);
+            if (!previous || (!visualOnly && previous.userData.visualOnly)) {
+              previous?.dispose();
+              const closed = visualOnly ? withVisualRandom(newMaterial) : newMaterial();
               closed.side = side;
+              if (visualOnly) closed.userData.visualOnly = true;
               this.closedMaterials.set(key, closed);
             }
             clones.set(key, copy);
@@ -144,9 +156,7 @@ export class BuildingVisibility {
           return clones.get(key);
         };
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map(clone) : clone(mesh.material);
-      });
-      const meshes = [];
-      object.traverse(mesh => { if (mesh.isMesh) meshes.push(mesh); });
+      }
       // `kept`: las mallas transparentes o con varios materiales, que en isométrica siguen sueltas aunque el
       // edificio vaya en lotes.
       const part = { object, roof, materials: [...clones.values()], meshes, kept: [],
@@ -186,19 +196,23 @@ export class BuildingVisibility {
         // Varios materiales no entran en un lote: en isométrica sigue suelta, como antes, para no desaparecer.
         if (Array.isArray(mesh.material)) { part.kept.push(mesh); return; }
         const key = `${mesh.material.userData.staticBatchKey ?? mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}|${geometryChunk(mesh.geometry, mesh.matrixWorld, CLOSED_CHUNK_SIZE)}`;
-        if (!buckets.has(key)) buckets.set(key, { source: mesh, geometries: [], owners: [] });
-        const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+        if (!buckets.has(key)) buckets.set(key, { source: mesh, geometries: [], owners: [], visualOnly: true });
+        const visualOnly = mesh.userData.visualOnly === true;
+        const clone = () => mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+        const geometry = visualOnly ? withVisualRandom(clone) : clone();
         // Las caras y los adornos comparten estos atributos; no se necesitan tangentes. Un material
         // puede pedir los suyos (el color de fondo de los avisos).
         const keep = ['position', 'normal', 'uv', ...(mesh.material.userData.batchAttributes ?? [])];
         for (const name of Object.keys(geometry.attributes)) if (!keep.includes(name)) geometry.deleteAttribute(name);
-        buckets.get(key).geometries.push(geometry);
-        buckets.get(key).owners.push(building);
+        const bucket = buckets.get(key);
+        bucket.geometries.push(geometry);
+        bucket.owners.push(building);
+        bucket.visualOnly &&= visualOnly;
         // Lo transparente se ordena por objeto: fundido en un lote se pintaría delante de una pared atenuada.
         if (mesh.material.transparent) part.kept.push(mesh);
       });
     }
-    for (const { source, geometries, owners } of buckets.values()) {
+    for (const { source, geometries, owners, visualOnly } of buckets.values()) {
       // Se recorren edificio por edificio: lo de cada uno queda en un tramo seguido del índice.
       const ranges = [];
       let start = 0;
@@ -209,12 +223,15 @@ export class BuildingVisibility {
         else ranges.push({ building: owners[i], start, count });
         start += count;
       });
-      const geometry = mergeGeometries(geometries);
+      const merge = () => mergeGeometries(geometries);
+      const geometry = visualOnly ? withVisualRandom(merge) : merge();
       for (const temporary of geometries) temporary.dispose();
       if (!geometry) throw new Error('Geometría incompatible en edificios agrupados');
       // Los lotes nunca comparten un material que pueda atenuarse en isométrica.
       const material = this.closedMaterials.get(source.material.userData.staticBatchKey) ?? source.material;
-      const mesh = new THREE.Mesh(geometry, material);
+      const create = () => new THREE.Mesh(geometry, material);
+      const mesh = visualOnly ? withVisualRandom(create) : create();
+      if (visualOnly) mesh.userData.visualOnly = true;
       mesh.castShadow = source.castShadow;
       mesh.receiveShadow = source.receiveShadow;
       geometry.computeBoundingSphere();
