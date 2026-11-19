@@ -86,7 +86,7 @@ export const ARCHETYPES = {
   estudiante: {
     // Universitarios: gente adulta, ni un cuerpo menudo ni ropa corta.
     mujer: .5, edad: { joven: .65, adulto: .35 },
-    ropa: { hombre: ['camiseta', 'camiseta', 'buzo', 'rayas'], mujer: ['blusa', 'blusa', 'saco', 'saco'] },
+    ropa: { hombre: ['buzo', 'buzo', 'chaqueta', 'camiseta', 'rayas'], mujer: ['blusa', 'blusa', 'saco', 'saco'] },
     pelo: { hombre: ['corto', 'rapado', 'desordenado', 'crespo', 'cola'], mujer: ['cola', 'largo', 'melena', 'crespo'] },
     barba: { ninguna: .8, candado: .14, bigote: .06 },
     calzado: { tenis: 1 }, cabeza: { 'sin-sombrero': .9, 'gorro-lana': .1 }, desgaste: [0],
@@ -273,13 +273,24 @@ const hexToLinear = hex => [1, 3, 5].map(at => {
   return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
 });
 const SKIN_LAB = SKIN_ALBEDO.map(linearToLab);
+const labDistance = ([l, a, b], [otherL, otherA, otherB]) => Math.hypot(l - otherL, a - otherA, b - otherB);
 
 /** Qué tan lejos está un tono de tela de una piel; por debajo de SKIN_CLEARANCE, de lejos parece cuerpo sin ropa. */
 export function skinDistance(hex, piel) {
-  const [l, a, b] = linearToLab(hexToLinear(hex)), [sl, sa, sb] = SKIN_LAB[piel];
-  return Math.hypot(l - sl, a - sa, b - sb);
+  return labDistance(linearToLab(hexToLinear(hex)), SKIN_LAB[piel]);
 }
 export const SKIN_CLEARANCE = 14;
+
+const COLD_GARMENTS = new Set(['chaqueta', 'camisa', 'saco', 'buzo']);
+const SCARF_CHANCE = { oficinista: .27, estudiante: .32, senora: .34, abuelo: .29, vendedor: .24, reciclador: .23, habitante: .27 };
+const SCARF_DYES = ['#b3a889', '#a4aabd', '#788d9a', '#8f4d62', '#b08a47', '#728578', '#94778e'];
+
+function scarfColor(piel, arriba, chance) {
+  const shirt = linearToLab(hexToLinear(arriba));
+  const colors = SCARF_DYES.filter(color => skinDistance(color, piel) >= SKIN_CLEARANCE &&
+    labDistance(linearToLab(hexToLinear(color)), shirt) >= 24);
+  return colors[Math.floor(chance * colors.length)] ?? null;
+}
 
 /** Tono de la lista que no se confunda con esa piel. */
 function clothTone(list, piel, random) {
@@ -324,31 +335,42 @@ function rollHair(spec, sexo, edad, piel, random) {
  * banca está medida para esa altura.
  * @returns {{ arquetipo: string, sexo: string, real: object, piel: number, peloColor: number, speed: number,
  *   andar: string, style: object|null, paraguas: number|null, lluvia: string|null, nariz: boolean, correr: number,
- *   pausa: number, paradas: object, marcha: object, frases: string[] }}
+ *   pausa: number, paradas: object, marcha: object, frases: string[], chalecoReciclador?: 'lona'|'acolchado' }}
  */
-export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFija = false } = {}) {
+export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFija = false, sexo: sexoFijo } = {}) {
   const spec = ARCHETYPES[id];
   if (!spec) throw new Error(`Arquetipo desconocido: ${id}`);
-  const sexo = random() < spec.mujer ? 'mujer' : 'hombre';
+  const sexoSorteado = random() < spec.mujer ? 'mujer' : 'hombre';
+  const sexo = sexoFijo === 'mujer' || sexoFijo === 'hombre' ? sexoFijo : sexoSorteado;
   const edad = weighted(spec.edad, random);
   const accesorios = [];
   let mano = null;
+  let chalecoReciclador;
   for (const group of spec.accesorios) {
     if (random() >= group.p) continue;
     const item = fromList(group.opciones, random);
     // Sentado o dormido no se sostiene nada.
     if (sinCarga && item.id !== 'casco') continue;
-    accesorios.push({ id: item.id, color: fromList(item.colores, random) });
+    const pigmento = random() * item.colores.length;
+    accesorios.push({ id: item.id, color: item.colores[Math.floor(pigmento) % item.colores.length] });
+    // El entero sigue eligiendo el costal. Su fracción permite variar la dotación sin otro sorteo.
+    if (id === 'reciclador' && item.id === 'costal') {
+      const variante = pigmento % 1;
+      chalecoReciclador = variante < .34 ? 'lona' : variante < .65 ? 'acolchado' : undefined;
+    }
     mano ??= item.mano ?? null;
   }
   const lleva = id => accesorios.some(item => item.id === id);
   const piel = weighted(spec.piel ?? PIEL_CIUDAD, random);
   const calzado = weighted(spec.calzado, random);
+  const pelo = fromList(spec.pelo[sexo], random);
+  const barba = sexo === 'mujer' ? 'ninguna' : weighted(spec.barba, random);
+  const prendas = spec.ropa[sexo].filter(ropa => garmentAllowed(ropa, edad));
+  const prenda = random() * prendas.length;
   const real = {
     sexo, edad,
-    pelo: fromList(spec.pelo[sexo], random),
-    barba: sexo === 'mujer' ? 'ninguna' : weighted(spec.barba, random),
-    ropa: fromList(spec.ropa[sexo].filter(ropa => garmentAllowed(ropa, edad)), random),
+    pelo, barba,
+    ropa: prendas[Math.floor(prenda) % prendas.length],
     calzado,
     cabeza: weighted(spec.cabeza, random),
     desgaste: fromList(spec.desgaste, random),
@@ -359,6 +381,12 @@ export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFi
     },
     accesorios
   };
+  // El decimal del mismo sorteo permite añadir una bufanda sin cambiar la talla, el pelo ni la marcha.
+  const bufanda = prenda % 1, probabilidad = SCARF_CHANCE[id] ?? 0;
+  if (!sinCarga && bufanda < probabilidad && COLD_GARMENTS.has(real.ropa)) {
+    const color = scarfColor(piel, real.tonos.arriba, bufanda / probabilidad);
+    if (color) accesorios.push({ id: 'bufanda', color });
+  }
   // El casco no cabe sobre una melena ni sobre un sombrero.
   if (lleva('casco')) { real.cabeza = 'sin-sombrero'; if (!['corto', 'rapado', 'calvo'].includes(real.pelo)) real.pelo = 'corto'; }
   const peloColor = rollHair(spec, sexo, edad, piel, random);
@@ -379,6 +407,7 @@ export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFi
     nariz: manoLibre('nariz', mano),
     correr: spec.correr,
     pausa: spec.pausa,
+    ...(chalecoReciclador && { chalecoReciclador }),
     paradas: usable(spec.paradas),
     marcha: usable(spec.marcha),
     frases: spec.frases
@@ -406,6 +435,9 @@ export function personLook(person, random = Math.random) {
   look.piel = person.piel;
   look.peloColor = person.peloColor;
   look.desgaste = person.real.desgaste;
+  look.acabadoCivil = true;
+  if (person.arquetipo === 'obrero') look.ropaDeObra = true;
+  if (person.arquetipo === 'reciclador' && person.chalecoReciclador) look.chalecoReciclador = person.chalecoReciclador;
   look.accesorios = [];
   look.real = person.real;
   return look;

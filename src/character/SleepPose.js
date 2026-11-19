@@ -91,25 +91,34 @@ export class SleepPose {
     return Number.isFinite(minimum) ? minimum : 0;
   }
 
-  _prepare() {
+  _prepare(surface) {
+    this.support = null;
     for (const s of this.slots) { s.bone.quaternion.copy(s.restQ); s.bone.position.copy(s.restP); }
     this.frame.updateWorldMatrix(true, true);
     this.frame.getWorldQuaternion(this.frameQ);
     const hips = this.bones.Hips;
     hips.getWorldQuaternion(this.q);
-    this.delta.setFromEuler(this.euler.set(-Math.PI / 2, 0, 0));
+    this.delta.setFromEuler(this.euler.set(-Math.PI / 2 - (surface ? .14 : 0), 0, 0));
     this.delta.premultiply(this.frameQ).multiply(this.parentQ.copy(this.frameQ).invert());
     this.q.premultiply(this.delta);
     if (hips.parent) this.q.premultiply(hips.parent.getWorldQuaternion(this.parentQ).invert());
     hips.quaternion.copy(this.q); hips.updateMatrixWorld(true);
     // Shape the whole body; never inherit a planted idle knee or swinging arm.
-    this._aim('Spine', 'Spine1', 0, .015, -1);
-    this._aim('Spine1', 'Spine2', 0, .025, -1);
-    this._aim('Spine2', 'Neck', 0, .025, -1);
-    this._aim('LeftUpLeg', 'LeftLeg', .07, .12, 1);
-    this._aim('LeftLeg', 'LeftFoot', .02, -.12, 1);
-    this._aim('RightUpLeg', 'RightLeg', -.07, .04, 1);
-    this._aim('RightLeg', 'RightFoot', -.02, -.04, 1);
+    this._aim('Spine', 'Spine1', 0, surface ? -.23 : .015, -1);
+    this._aim('Spine1', 'Spine2', 0, surface ? -.32 : .025, -1);
+    this._aim('Spine2', 'Neck', 0, surface && surface !== 'colchonCorto' ? .065 : .025, -1);
+    if (surface === 'colchonCorto') {
+      // The scanned mattress is shorter. Bent knees keep both heels on it.
+      this._aim('LeftUpLeg', 'LeftLeg', .055, .66, .72);
+      this._aim('LeftLeg', 'LeftFoot', .02, -.93, .37);
+      this._aim('RightUpLeg', 'RightLeg', -.05, .76, .65);
+      this._aim('RightLeg', 'RightFoot', -.02, -.89, .46);
+    } else {
+      this._aim('LeftUpLeg', 'LeftLeg', .07, surface ? .04 : .12, 1);
+      this._aim('LeftLeg', 'LeftFoot', .02, surface ? -.22 : -.12, 1);
+      this._aim('RightUpLeg', 'RightLeg', -.07, .04, 1);
+      this._aim('RightLeg', 'RightFoot', -.02, surface ? -.21 : -.04, 1);
+    }
     this._aim('LeftFoot', null, .05, .9, .25);
     this._aim('RightFoot', null, -.05, .9, .25);
     this._aim('LeftArm', 'LeftForeArm', .32, .02, .95);
@@ -129,21 +138,22 @@ export class SleepPose {
       }
       this._bottom(true);
     }
+    this.surface = surface;
     this.ready = true;
   }
 
   /** Call after the mixer, and restore before the following mixer evaluation. */
-  apply(dt, sleeping) {
+  apply(dt, sleeping, surface) {
     this.restore();
     if (!this.frame || !this.bones.Hips || !this.bones.Head || !this.slots.length) return;
     const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0;
     this.time += elapsed;
-    this.weight += ((sleeping ? 1 : 0) - this.weight) * -Math.expm1(-5 * elapsed);
+    this.weight += ((sleeping ? 1 : 0) - this.weight) * -Math.expm1(-(sleeping && surface ? 8 : 5) * elapsed);
     if (!sleeping && this.weight < .001) { this.weight = 0; return; }
     if (this.weight < .00001) return;
     for (const s of this.slots) { s.baseQ.copy(s.bone.quaternion); s.baseP.copy(s.bone.position); }
     this.active = true;
-    if (!this.ready) this._prepare();
+    if (!this.ready || (sleeping && this.surface !== surface)) this._prepare(surface);
     for (const s of this.slots) {
       s.bone.quaternion.copy(s.baseQ).slerp(s.targetQ, this.weight);
       s.bone.position.copy(s.baseP).lerp(s.targetP, this.weight);

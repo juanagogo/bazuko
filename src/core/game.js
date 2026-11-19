@@ -609,12 +609,21 @@ export class Game {
 
   /** Tecla K: alterna personaje realista / procedural (liviano) y lo recuerda */
   async _toggleModel() {
-    const next = this.player.modelKind === 'realista' ? 'procedural' : 'realista';
-    try { localStorage.setItem('bazuko.modelo', next); } catch { /* sin almacenamiento */ }
-    window.dispatchEvent(new CustomEvent('toast', {
-      detail: { text: next === 'realista' ? 'Personaje realista' : 'Personaje liviano (para equipos lentos)', type: 'info' }
-    }));
-    await this.player.setModel(next);
+    const current = this.player.pendingModel?.kind ?? this.player.modelKind;
+    const next = current === 'realista' ? 'procedural' : 'realista';
+    const change = this._modelChange = this.player.setModel(next);
+    let applied = false;
+    try { await change; applied = true; } catch { /* el cuerpo anterior sigue en escena */ }
+    if (this._modelChange !== change) return;
+    this._modelChange = null;
+    if (applied && this.player.modelKind !== next) return;
+    const name = next === 'realista' ? 'realista' : 'liviano';
+    let text = `No se pudo cargar el personaje ${name}. Vuelva a intentarlo.`;
+    if (applied) {
+      try { localStorage.setItem('bazuko.modelo', next); } catch { /* sin almacenamiento */ }
+      text = next === 'realista' ? 'Personaje realista' : 'Personaje liviano (para equipos lentos)';
+    }
+    window.dispatchEvent(new CustomEvent('toast', { detail: { text, type: applied ? 'info' : 'warn' } }));
   }
 
   _toggleCamera() {
@@ -1113,7 +1122,7 @@ export class Game {
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
     this.player.stopBasuco?.();
-    this.player.settleForSleep?.();
+    this.player.settleForSleep?.(hogar ? null : this.cambuche?.sleepAnchor?.());
     this.player.playAction('dormir', 1.6);
 
     const factor = Math.min(1, hours / 8); // una siesta rinde menos
@@ -1171,6 +1180,7 @@ export class Game {
 
     setTimeout(() => {
       this.isSleeping = false;
+      this.player.finishShelterRest?.();
       // Despierta y se levanta: lo que quedaba de la acción no debe tenerlo acostado con el juego en marcha.
       if (this.player.action === 'dormir') {
         this.player.action = null;

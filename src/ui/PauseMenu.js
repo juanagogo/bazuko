@@ -2,7 +2,7 @@
 // Menú de pausa por pestañas: Mapa (GPS), Estado, Ajustes y Controles.
 import { el, button } from './dom.js';
 import { DEFAULT_GRAPHICS_QUALITY } from '../core/GraphicsQuality.js';
-import { modoEntrada } from '../core/modoEntrada.js';
+import { modoEntrada, sinTeclas } from '../core/modoEntrada.js';
 import { CONTROLES_CON_EL_DEDO } from '../core/TouchControls.js';
 import { cop } from '../utils/money.js';
 import { XP_PER_LEVEL } from '../utils/constants.js';
@@ -267,6 +267,17 @@ function settingsPanel(game) {
   const muteBtn = button(muteLabel(audio?.isMuted()), {
     onClick: () => muteBtn.replaceChildren(...muteLabel(audio?.toggleMute()))
   });
+  const modelLabel = el('span');
+  const showModel = () => {
+    const loading = game.player?.pendingModel?.kind === 'realista';
+    const label = game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)';
+    modelLabel.textContent = sinTeclas(loading ? 'Cancelar carga del personaje realista (K)' : label);
+  };
+  const followModel = () => {
+    showModel();
+    game.player?.pendingModel?.ready.then(showModel, showModel);
+  };
+  followModel(); // También si se abrió Ajustes durante una carga iniciada con K.
 
   // Lo elegido, que puede tardar en aplicarse mientras compilan las sombras.
   const curQuality = game.chosenQuality ?? game.renderer?.quality ?? game.renderer?.initialQuality ?? DEFAULT_GRAPHICS_QUALITY;
@@ -300,8 +311,8 @@ function settingsPanel(game) {
             () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))),
       section('user', 'Personaje y radio',
         el('div', { class: 'pause-actions' },
-          button([icon('body', { size: 18 }), game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)'], {
-            onClick: () => { game._toggleModel?.(); game.menu.refresh(); }
+          button([icon('body', { size: 18 }), modelLabel], {
+            onClick: () => { game._toggleModel?.(); followModel(); }
           }),
           button([icon('radio', { size: 18 }), game.radio?.isOn ? 'Sintonizar radio (R)' : 'Radio (R)'], {
             onClick: () => window.dispatchEvent(new CustomEvent('open-radio-modal'))

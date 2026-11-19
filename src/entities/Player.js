@@ -115,6 +115,7 @@ export class Player {
     this.procedural = this.character;
     this.modelScale = CHARACTER_SCALE;
     this.modelKind = 'procedural';
+    this.pendingModel = null; // { kind, ready } mientras se cambia el cuerpo que sigue en escena.
     this.ragdoll = new PlayerRagdoll(this);
 
     this.time = 0;
@@ -353,24 +354,34 @@ export class Player {
   }
 
   /** Cambia entre el personaje realista (MakeHuman, por defecto) y el procedural (liviano) */
-  async setModel(kind) {
+  setModel(kind) {
+    if (this.pendingModel?.kind === kind) return this.pendingModel.ready;
+    const change = this.pendingModel = { kind };
+    change.ready = this._applyModel(change).finally(() => {
+      if (this.pendingModel === change) this.pendingModel = null;
+    });
+    return change.ready;
+  }
+
+  async _applyModel(change) {
+    const { kind } = change;
     if (kind === this.modelKind) return;
     this.clearVehicleImpact();
-    const previousKind = this.modelKind;
-    this.modelKind = kind;
     if (kind === 'realista') {
-      this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
-        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT, poseBicicleta: true
+      const loading = this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
+        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT, acabadoCivil: true, costalJugador: true, poseBicicleta: true
       });
       try {
-        this._realistic = await this._realisticPromise;
+        this._realistic = await loading;
       } catch (error) {
-        this._realisticPromise = null;
-        if (this.modelKind === kind) this.modelKind = previousKind;
+        if (this._realisticPromise === loading) this._realisticPromise = null;
         throw error;
       }
-      if (this._realistic.look !== this.look && this.look) await this._realistic.setLook(this.look);
-      if (this.modelKind !== 'realista') return; // se cambió mientras cargaba
+      if (this.pendingModel !== change) return;
+      if (this.look && this._realistic.look !== this.look) {
+        await this._realistic.setLook(this.look);
+        if (this.pendingModel !== change) return;
+      }
       this.hitLean.remove(this.character.group); // la inclinación no se queda en el cuerpo que sale
       this.root.remove(this.character.group);
       this.character = this._realistic;
@@ -389,6 +400,7 @@ export class Player {
       this.procedural.setBasuco?.(!!this.basuco && !this.basuco.stowed);
     }
     this.root.add(this.character.group);
+    this.modelKind = kind;
   }
 
   /**
@@ -472,7 +484,7 @@ export class Player {
   }
 
   /** Dormir congela `update`: la inercia, el empujón de un golpe y el aterrizaje de ese instante volverían al despertar, resbalando y de pie de golpe. */
-  settleForSleep() {
+  settleForSleep(anchor = null) {
     this.velocity?.set(0, 0, 0);
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
@@ -482,6 +494,18 @@ export class Player {
     this.landing = 0;
     this.landingTime = Infinity;
     this._jumpBuffer = this._coyote = 0;
+    this._shelterRest = anchor && { ...anchor, yawBefore: this.root.rotation.y, hipPosition: new THREE.Vector3(),
+      headPosition: new THREE.Vector3() };
+  }
+
+  /** Regresa al punto de interacción bajo el cartel de dormir. La posición física nunca se movió. */
+  finishShelterRest() {
+    const rest = this._shelterRest;
+    if (!rest) return;
+    this._shelterRest = null;
+    this.movement.restSurface = undefined;
+    this.root.position.copy(this.position);
+    this.root.rotation.y = rest.yawBefore;
   }
 
   /** Dormir congela la simulación, no el cuerpo: se acuesta y sigue así hasta que Game lo despierta. */
@@ -493,7 +517,11 @@ export class Player {
     // Se endereza como al quedarse quieto: acostado con la inclinación de correr, el cuerpo liviano cruzaría el piso.
     this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
     this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
+    const rest = this._shelterRest;
     Object.assign(this.movement, { landing: 0, turnRate: 0 });
+    if (rest) Object.assign(this.movement, {
+      grounded: true, swimming: false, airborne: false, footSupport: undefined, restSurface: rest.surface
+    });
     this.character.update(dt, {
       speed: 0,
       running: false,
@@ -508,6 +536,28 @@ export class Player {
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
     });
+    if (!rest) return;
+    if (rest.character !== this.character) {
+      rest.character = this.character;
+      rest.hip = this.character.ragdollRig?.hips ?? this.character.group.getObjectByName('mixamorigHips');
+      rest.head = this.character.ragdollRig?.head ?? this.character.group.getObjectByName('mixamorigHead');
+    }
+    // Dentro del refugio primero se encoge, para que la cabeza no atraviese la cubierta.
+    const weight = this.character.sleepWeight;
+    const crouched = weight > (rest.covered ? .76 : .43) || this.actionProgress > .43;
+    if (!crouched || !rest.hip || !rest.head) return;
+    const hip = rest.hip.getWorldPosition(rest.hipPosition);
+    const axis = rest.head.getWorldPosition(rest.headPosition).sub(hip);
+    if (Math.hypot(axis.x, axis.z) < .10) return;
+    this.root.rotation.y += shortestTurn(rest.headYaw - Math.atan2(axis.x, axis.z));
+    rest.hip.getWorldPosition(hip);
+    const liviano = this.character === this.procedural;
+    const almohada = liviano && rest.surface === 'colchonCorto';
+    // La cabeza del liviano es más grande. En el colchón corto descansa más adentro de la almohada.
+    const margen = almohada ? .075 : 0;
+    this.root.position.x += rest.position.x - hip.x - margen * Math.sin(rest.headYaw);
+    this.root.position.z += rest.position.z - hip.z - margen * Math.cos(rest.headYaw);
+    this.root.position.y = rest.position.y + (almohada ? .006 : liviano ? -.022 : 0);
   }
 
 

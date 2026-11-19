@@ -27,6 +27,16 @@ Los poros son el único detalle exclusivo del modelo completo. Colores, marcas, 
 - **Desgaste.** Decolorado en codos, rodillas y puños, y polvo en los bajos. Las manchas grandes solo aparecen por encima de desgaste 1: es la marca de quien lleva mucho tiempo en la calle.
 - **Capas.** La tela sale un poco sobre el cuerpo para tapar la piel que se asoma por lo justo. El pantalón ancho (`/pants/`) sale menos, baja la pretina lo que la camisa tapa y, con el saco, la mete hacia adentro para no atravesarlo en la cadera.
 
+### Chaqueta y buzo
+
+La chaqueta del jugador y el buzo de la escuadra llevan un mapa normal de 1024 × 1024. Los pliegues nacen en las sisas, los codos y la pretina del patrón UV. El mapa de 512 × 512 guarda en rojo la oclusión de contacto y en verde la rugosidad de la solapa, los bolsillos, las cintas y el jean. El azul vale cero en toda la tela. Cycles calcula la oclusión hasta 3,5 cm sobre la malla vestida. Los tres cuerpos masculinos y ambos niveles de detalle comparten las mismas imágenes por prenda.
+
+En un uniforme, el shader mide cada muestra de color contra la luminancia media de su pieza. Así el buzo de la escuadra conserva el tono carbón elegido y se ve el relieve cuando el personaje gira hacia la luz. Los cuatro mapas y sus vínculos glTF se regeneran con Blender desde la raíz del proyecto.
+
+```sh
+blender -b --factory-startup -t 2 --python tools/personaje/hornear_ropa.py
+```
+
 ## Pelo, barba y zapatos
 
 El pelo y la barba toman el color elegido, con la textura solo como detalle de mechones (`addHairTone`, en `src/character/weathering.js`), y el `rapado` baja ese detalle porque sus parches se verían como camuflado en las canas. Las láminas de pelo se iluminan con la normal de la cabeza, para que las que quedan al revés no se apaguen en parches negros, y escriben profundidad para que no las atraviesen las pestañas. El `crespo` lleva un grano fino y mate que se funde de lejos, y la barba otro, para que de cerca no sea una mancha plana. Los zapatos pierden color con el polvo y el desgaste, y se oscurecen en suela y puntera. El zapato de cuero (`zapatos`) trae en la textura un naranja que nadie lleva: se recolorea por luminancia con `tonos.calzado` y, sin tono, sale café oscuro. La planta de todo calzado sale como caucho oscuro: clara, con el pie en el aire, se leía como la planta de un pie descalzo. Se reconoce por la cara que mira hacia abajo en el cuerpo de pie, sin textura ni uniforme nuevos: el empeine no se toca, y la pared vertical del tacón sigue clara.
@@ -39,9 +49,9 @@ Es una aproximación global: no se calcula quién está bajo techo, y quien est�
 
 ## Coste
 
-Los programas se comparten entre personas: el `customProgramCacheKey` no depende de quién sea, y lo que distingue a cada una son uniformes. Son 13 variantes para cinco tipos de superficie: piel 2, con poros en el modelo completo y sin ellos en el liviano; tela 2 y zapatos 2, según su archivo traiga mapa normal o no; pelo 4, dos para las cejas, que se dibujan en dos pasadas, una para las láminas y otra para las láminas recortadas por un sombrero; y barba 3, dos para el modelo completo, también en dos pasadas, y una para el liviano, en una sola. Aparecen desde la entrada y vestir a alguien no añade ninguna. No se añaden luces, polígonos ni llamadas por persona. Quitar las medias bajo el pantalón largo y las láminas del crespo incluso ahorra triángulos.
+Los programas se comparten por tipo de superficie y mapas disponibles. Los colores y el desgaste de cada persona viajan en uniformes. La chaqueta y el buzo usan la misma variante de tela con normal, rugosidad y oclusión, con una imagen ORM adicional por patrón UV. Cada prenda sigue dibujándose con su malla original.
 
-Contra los materiales anteriores, en las paradas del recorrido de medida (al entrar, cambuche, avenida y estación) suman 6 programas netos, en calidad baja y en media: las 13 variantes sustituyen a 7 programas que ya no hacen falta. Quien además compila la otra variante, con sombras y sin ellas, guarda las dos, y la diferencia queda entre 8 y 14 según por dónde haya andado. Las llamadas quedan entre −2,0 % y +3,4 % y los triángulos entre −5,3 % y +4,2 %, porque los peatones cambian en cada partida. El primer peatón que se ve de cerca enlaza los mismos programas de sombra que antes, de modo que no hace falta precompilar nada más. Estas cifras describen ese recorrido; la cuenta de programas vale para cualquier partida.
+La medición anterior a los mapas ORM registró 13 variantes de personaje y seis programas netos más que los materiales que sustituyeron, en baja y media. En las paradas de entrada, cambuche, avenida y estación, las llamadas variaron de −2,0 % a +3,4 % y los triángulos de −5,3 % a +4,2 % con la población de cada partida.
 
 Cada imagen ocupa una sola textura en la GPU, y el detalle de la memoria y de la carga está en [rendimiento.md](../../docs/rendimiento.md).
 
