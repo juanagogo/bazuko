@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { NEIGHBORHOODS } from './NeighborhoodIdentity.js';
 import { rng } from './textures.js';
 import { detailAtlas } from './textures-calle.js';
+import { addBakeryDisplay, bakeryOpening, panelsAround } from './Panaderia.js';
+import { ANTEPECHO_BOTELLERO, ponerBotellero } from './Botellero.js';
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const UNIT = Object.fromEntries(['position', 'normal', 'uv'].map(key => [key, Array.from(BOX.attributes[key].array)]));
@@ -117,6 +119,18 @@ function lifeBatch(parent, face, plane, material = sharedLifeMaterial) {
     out.index.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
   return {
+    estampa(modelo, rect, u, y, v, escala) {
+      const desde = out.position.length / 3, { position, normal, uv, index } = modelo;
+      for (let i = 0; i < position.length; i += 3) {
+        const a = u + escala * position[i], c = plane + v + escala * position[i + 2];
+        out.position.push(ux * a + nx * c, y + escala * position[i + 1], uz * a + nz * c);
+        out.normal.push(ux * normal[i] + nx * normal[i + 2], normal[i + 1], uz * normal[i] + nz * normal[i + 2]);
+      }
+      for (let i = 0; i < uv.length; i += 2) {
+        out.uv.push(rect[0] + (rect[2] - rect[0]) * uv[i], rect[1] + (rect[3] - rect[1]) * uv[i + 1]);
+      }
+      for (const i of index) out.index.push(desde + i);
+    },
     panel(rect, u, y, v, w, h) {
       quad([[u - w / 2, y - h / 2, v], [u + w / 2, y - h / 2, v], [u + w / 2, y + h / 2, v], [u - w / 2, y + h / 2, v]], [0, 0, 1], rect);
     },
@@ -218,6 +232,124 @@ function addRooftopLife(shell, { baseY, width, depth, height, seed, ruin, tankSi
   return life.finish('Azotea con vida');
 }
 
+/** El local del primer piso: muro, persiana, lo que se ve adentro, rótulo y lo que sale al andén. */
+function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, balcon, flat = false }) {
+  const q = rng((seed ^ 0x6c0ca15) >>> 0), half = length / 2, bajo = facadeHeight < 3.7, alto = bajo ? 2 : 2.3;
+  const panos = Math.ceil(length / 2.3), ancho = length / panos, muro = UV[MUROS[Math.floor(q() * MUROS.length)]];
+  // La pintura llega hasta arriba del rótulo, cerca de la placa del segundo piso, o solo al dintel. El aviso grande
+  // retrocede con la fachada y queda por detrás de este muro: donde lo hay, la pintura termina 6 cm por debajo de él.
+  const anchoRotulo = Math.min(length - .5, bajo ? 2 : 2.6), yRotulo = bajo ? Math.min(2.5, facadeHeight - anchoRotulo / 8 - .1) : 3.05;
+  const placa = yRotulo + anchoRotulo / 8 + .1, cabe = placa <= Math.min(floorHeight * 1.2, facadeHeight - .2);
+  const tope = local.conAviso ? avisoBajo - .06 : q() < .5 && cabe ? placa : alto + .19;
+  const altoMuro = Math.min(tope, facadeHeight - .2);
+  // El vano deja libres los contadores y las esquinas. El zócalo del cascarón conserva su planta.
+  let a = -half + .3, b = half - .3;
+  const borde = contadores ? half - .62 - (contadores.count - 1) * .42 - .32 : 0;
+  if (contadores) {
+    if (contadores.side < 0) a = -borde; else b = borde;
+  }
+  const libre = b - a, vanos = libre >= 5.2 ? 2 : 1, vano = Math.min(3.1, libre / vanos - .25);
+  const display = flat ? null : bakeryOpening(local, seed, a + libre * .5 / vanos, vano, .07 + alto - .26);
+  const botellas = local.interior === 'botellas', huecos = display ? [display] : [];
+  if (botellas && !flat && vano >= .85) for (let i = 0; i < vanos; i++) {
+    const u = a + libre * (i + .5) / vanos;
+    huecos.push({ left: u - vano / 2, right: u + vano / 2, bottom: ANTEPECHO_BOTELLERO, top: .07 + alto });
+  }
+  for (let i = 0; i < panos; i++) {
+    if (!huecos.length) life.panel(muro, -half + ancho * (i + .5), altoMuro / 2, .01, ancho, altoMuro);
+    else {
+      const bounds = [-half + ancho * i, 0, -half + ancho * (i + 1), altoMuro];
+      let piezas = [[...bounds, muro]];
+      for (const hueco of huecos) piezas = piezas.flatMap(([l, b, r, t, uv]) => panelsAround([l, b, r, t], hueco, uv));
+      for (const [left, bottom, right, top, uv] of piezas) {
+        life.panel(uv, (left + right) / 2, (bottom + top) / 2, .01, right - left, top - bottom);
+      }
+    }
+  }
+  if (!flat) life.box(UV.concrete, 0, altoMuro - .03, .035, length, .06, .05);
+  const centros = [];
+  if (vano >= .85) for (let i = 0; i < vanos; i++) {
+    const u = a + libre * (i + .5) / vanos, estado = i && q() < .5 ? 'cerrada' : local.estado;
+    centros.push(u);
+    if (!flat) life.box(UV.canvas, u, 0, .09, vano + .2, .07, .28);
+    if (estado === 'cerrada') {
+      life.panel(UV[local.persiana], u, .07 + alto / 2, .03, vano, alto);
+      if (q() < .3) life.panel(q() < .6 ? UV.arrienda : UV.vende, u + (q() - .5) * vano * .4, 1.5, .04, .62, .46);
+      continue;
+    }
+    const interior = local.reja && q() < .55 ? UV.reja : UV[local.interior];
+    const caida = estado === 'media' ? .9 + q() * .4 : .26;
+    if (botellas) ponerBotellero(life, UV, u, vano, .07 + alto - caida, seed ^ Math.imul(i + 1, 0x371e8da7), interior === UV.reja, flat);
+    else if (!display || i !== 0) life.panel(interior, u, .07 + alto / 2, .022, vano, alto);
+    if (flat) life.panel(UV[local.persiana], u, .07 + alto - caida / 2, .034, vano, caida);
+    else life.box(UV[local.persiana], u, .07 + alto - caida, .065, vano, caida, .07);
+    if (local.luz && warm) front.box(m.warmWindow, u, alto + .2, .05, Math.min(1.5, vano * .7), .09, .07);
+  }
+  const centro = centros.length ? (centros[0] + centros[centros.length - 1]) / 2 : (a + b) / 2;
+  const uRotulo = Math.max(-half + anchoRotulo / 2 + .1, Math.min(half - anchoRotulo / 2 - .1, centro));
+  if (!local.conAviso) life.panel(UV[`rot_${local.id}`], uRotulo, yRotulo, .03, anchoRotulo, anchoRotulo / 4);
+  if (!centros.length || flat) return { sale: false, display };
+  const izquierda = centros[0] - vano / 2, derecha = centros[centros.length - 1] + vano / 2;
+  let sale = !!toldo;
+  if (local.bandera === 'cruz') {
+    life.box(UV.cruz, Math.min(half - .12, derecha + .12), 2.5, .31, .05, .5, .5);
+    sale = true;
+  }
+  if (local.bandera === 'barbero') {
+    const u = Math.max(-half + .12, izquierda - .14);
+    life.cylinder(UV.barbero, u, 1.25, .1, .06, .06, .6, 6);
+    for (const y of [1.19, 1.85]) life.box(UV.canvas, u, y, .1, .15, .06, .15);
+  }
+  // El andén: a cada lado del vano, sin tapar la entrada ni el toldo de nadie.
+  const sitios = [Math.max(-half + .45, izquierda - .2), Math.min(half - .45, derecha + .2)];
+  if (sitios[1] - sitios[0] < 1.6) sitios.length = 1;
+  const quieto = local.estado === 'cerrada' ? .45 : 1;
+  const sobreContador = u => contadores && (contadores.side < 0 ? u < -borde + .4 : u > borde - .4);
+  sitios.forEach((u, i) => {
+    const pieza = local.anden[i], s = i ? -1 : 1;
+    if (pieza === 'afiches' && sobreContador(u - s * .2)) return;
+    if (q() < (pieza === 'afiches' || pieza === 'matera' ? .7 : quieto)) ANDEN[pieza](life, UV, q, u, s);
+  });
+  // Sin toldo de antes, muchos tienen tejadillo de lata o una lona corta sobre la entrada. Va alto y vuela poco, para
+  // no tapar a quien camina pegado a la pared, y ocupa casi todo el frente, para verse desde arriba. Donde el aviso
+  // grande baja de ahí no hay tejadillo: lo taparía.
+  const lata = local.toldos.includes('zinc'), { arranque, caida, vuelo } = TEJADILLO;
+  const cabeTejadillo = arranque <= facadeHeight - .3 && (!local.conAviso || avisoBajo >= arranque - .04);
+  if (!toldo && cabeTejadillo && q() < (lata ? .96 : .92)) {
+    const w = Math.min(length - .3, Math.max(vano + .9, length * .82)), u = Math.max(-half + w / 2 + .15, Math.min(half - w / 2 - .15, centros[0]));
+    const cell = lata ? UV.zinc : UV[local.toldos[0]], borde = arranque - caida;
+    if (lata) {
+      life.slope(cell, u, arranque, -.05, borde, vuelo, w);
+      for (const side of [-1, 1]) life.box(UV.rust, u + side * (w / 2 - .06), borde - .02, vuelo / 2, .02, .02, vuelo);
+    } else {
+      // La lona hace comba entre la pared y el tubo de afuera, y le cuelga un faldón corto y raído: la franja de abajo
+      // de la celda, la del dobladillo.
+      life.slope(cell, u, arranque, -.05, borde - .015, vuelo * .55, w);
+      life.slope(cell, u, borde - .015, vuelo * .55, borde, vuelo, w);
+      life.slope([cell[0], cell[1], cell[2], cell[1] + (cell[3] - cell[1]) * .3], u, borde, vuelo, borde - .12, vuelo + .015, w);
+    }
+    sale = true;
+  }
+  // Aviso de bandera: un cajón de lata colgado de un ángulo, perpendicular a la fachada; se lee al derecho viniendo
+  // de cualquier lado y su tapa se ve desde arriba. Solo donde no hay aviso grande, que diría lo mismo; a un lado del
+  // rótulo pintado, sin cruzarlo, y lejos de la medianera, para no quedar delante del aviso del vecino. Como el rótulo
+  // ya dice el nombre, la bandera lleva solo el título del oficio: la franja de arriba de la misma celda. Tampoco
+  // cuelga donde el balcón de madera llega hasta ella.
+  const bajoBalcon = balcon && half - BANDERA.medianera - .07 < Math.min(length * .7, 3.5) / 2 + .05;
+  const lados = local.conAviso || bajoBalcon || facadeHeight <= 3.6 ? [] : [-1, 1].filter(lado =>
+    half - BANDERA.medianera - (lado * uRotulo + anchoRotulo / 2) >= BANDERA.holgura && !(lado > 0 && local.bandera === 'cruz'));
+  if (lados.length && q() < .9) {
+    const u = lados[Math.floor(q() * lados.length)] * (half - BANDERA.medianera);
+    const celda = UV[`rot_${local.id}`], titulo = [celda[0], celda[3] + (celda[1] - celda[3]) * .64, celda[2], celda[3]], desde = life.vertices;
+    life.box(titulo, u, 3.01, .76, .14, .26, 1.36);
+    life.box(UV.rust, u, 3.27, .74, .17, .02, 1.48);
+    // Si después resulta que toca un sólido de la ciudad, `Bogota` la recoge: estos son sus vértices.
+    life.bandera = { desde, hasta: life.vertices };
+    sale = true;
+  }
+  return { sale, display };
+}
+
 /** Primer piso: toldos, contadores, letreros a mano y humedad bajo los alféizares. */
 function addFacadeLife(wall, face, plane, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight, rows, seed, ruin, shopfront, tower }) {
   const UV = detailAtlas().uv, life = lifeBatch(wall, face, plane), damp = lifeBatch(wall, face, plane, sharedStainMaterial);
@@ -260,7 +392,12 @@ function addFacadeLife(wall, face, plane, { length, facadeHeight, floorHeight, c
     const u = (centers[0] + centers[1]) / 2, gap = Math.abs(centers[1] - centers[0]) - windowWidth - .3;
     if (gap > .55) life.panel(cells[Math.floor(r() * 4)], u, floorHeight * 1.5, -.07, Math.min(gap, 1.3), Math.min(gap, 1.3) * .62);
   }
-  return stainMeshes + life.finish('Fachada con vida');
+  // El local va en una malla que esta pared ya tenía: la ciudad no gana mallas ni materiales. Sin toldo ni
+  // contadores queda la de la humedad, que se pinta en orden y sin fondo: ahí el local va plano, sin andén.
+  const flat = life.empty;
+  if (!local || (flat && damp.empty)) return { local: false, finish };
+  const { sale, display } = addLocal(flat ? damp : life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, balcon, flat });
+  return { local: flat ? 'plano' : 'completo', sale, finish, display };
 }
 
 function insetRoofCap(shell, height, inset) {
@@ -356,8 +493,9 @@ export function addBuildingDetails({ shell, width, depth, height, floors, face =
   front.box(m.metal, pipeU, facadeHeight / 2, -.025, .045, facadeHeight - .2, .045);
   front.box(m.trim, 0, facadeHeight - .13, -.055, Math.max(.2, length - .1), .16, .11);
   const result = { ...front.finish('Detalles de fachada agrupados'), windows: windowCount, balconies: balconyCount };
-  result.lifeMeshes = addFacadeLife(wall, face, plane, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight,
-    rows, seed, ruin, shopfront: windowBayWidth === null, tower: windowBayWidth !== null });
+  result.lifeMeshes = life.finish();
+  if (life.display) addBakeryDisplay(wall, face, length, plane, life.display, seed);
+  result.local = life.local;
 
   if (roof && !shell.root.userData.detailedRoof && height >= 4 && roofWidth >= 2 && roofDepth >= 2) {
     const inset = .8;
