@@ -32,17 +32,31 @@ function random(seed) {
 
 const sectorAt = (x, z) => `${Math.floor(x / PARK_VEGETATION.sectorSize)},${Math.floor(z / PARK_VEGETATION.sectorSize)}`;
 const distanceToGrid = (value, origin, spacing) => Math.abs(value - origin - Math.round((value - origin) / spacing) * spacing);
+const footprintRadius = radius => radius + PARK_VEGETATION.windBounds + PARK_VEGETATION.clearance;
+
+function summarize(clusters) {
+  const kinds = Object.fromEntries(KINDS.map(kind => [kind, 0]));
+  const sectors = new Set();
+  let maxHeight = 0, coveredArea = 0;
+  for (const { kind, sector, height, radius } of clusters) {
+    kinds[kind]++;
+    sectors.add(sector);
+    maxHeight = Math.max(maxHeight, height);
+    coveredArea += Math.PI * radius * radius;
+  }
+  return { clusters, metrics: { clusters: clusters.length, sectors: sectors.size, kinds, maxHeight, coveredArea } };
+}
 
 /**
  * Solo planifica sobre césped existente. Cada huella incluye follaje, viento y
  * margen; ni caminos, reservas ni agua reciben geometría decorativa.
  * isReserved(x, z, radius) puede proteger mobiliario u otros puntos del distrito.
+ * excludeFootprint(x, z, radius) retira grupos seleccionados sin ocupar su cupo con nuevas plantas.
  */
 export function planParkVegetation({ map, tileSize = 2, groundHeight = () => .06,
-  getWaterInfo = lakeWaterInfo, isReserved = () => false } = {}) {
-  const clusters = [], counts = Object.fromEntries(KINDS.map(kind => [kind, 0]));
-  const result = { clusters, metrics: { clusters: 0, sectors: 0, kinds: counts, maxHeight: 0, coveredArea: 0 } };
-  if (!map?.length || !(tileSize > 0) || !Number.isFinite(tileSize)) return result;
+  getWaterInfo = lakeWaterInfo, isReserved = () => false, excludeFootprint = null } = {}) {
+  const clusters = [];
+  if (!map?.length || !(tileSize > 0) || !Number.isFinite(tileSize)) return summarize(clusters);
   const tileAt = (x, z) => map[Math.round(z / tileSize)]?.[Math.round(x / tileSize)];
   const reserved = (x, z, radius = 0) => {
     const shelter = PARK_VEGETATION.shelter;
@@ -52,7 +66,7 @@ export function planParkVegetation({ map, tileSize = 2, groundHeight = () => .06
   // ni de un tile cuyo centro quede fuera del tablero curvo.
   const safePoint = (x, z) => tileAt(x, z) === 'grass' && !onLakeBridge(x, z) && !getWaterInfo(x, z) && !reserved(x, z);
   const footprint = (x, z, radius) => {
-    const margin = radius + PARK_VEGETATION.windBounds + PARK_VEGETATION.clearance;
+    const margin = footprintRadius(radius);
     if (reserved(x, z, margin)) return null;
     const y = groundHeight(x, z);
     if (!Number.isFinite(y) || y > 1.2 || y < LAKE_PARK.surfaceY) return null;
@@ -87,9 +101,11 @@ export function planParkVegetation({ map, tileSize = 2, groundHeight = () => .06
       if (!safePoint(x, z)) continue;
       const y = groundHeight(x, z);
       if (!Number.isFinite(y) || y > 1.2) continue;
-      let edge = false;
+      let edge = false, besideWalk = false;
       for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
-        if (map[row + dz]?.[col + dx] !== 'grass') edge = true;
+        const neighbor = map[row + dz]?.[col + dx];
+        if (neighbor !== 'grass') edge = true;
+        if (neighbor === 'plaza') besideWalk = true;
       }
       const nearLake = z >= LAKE_PARK.z0 && lakeRadius(x, z) < 1.1;
       const spacing = z >= LAKE_PARK.z0 ? 12 : 8;
@@ -97,7 +113,7 @@ export function planParkVegetation({ map, tileSize = 2, groundHeight = () => .06
       if (!edge && !nearLake && treeDistance > 3 && rng() > .12) continue;
       const key = sectorAt(x, z);
       if (!bins.has(key)) bins.set(key, []);
-      bins.get(key).push({ x, z, seed, score: rng() + (nearLake ? 2 : edge ? 1 : .35) });
+      bins.get(key).push({ x, z, seed, besideWalk, score: rng() + (nearLake ? 2 : edge ? 1 : .35) });
     }
   }
   const sectors = [...bins].map(([key, anchors]) => ({ key, anchors: anchors.sort((a, b) => b.score - a.score), count: 0 }));
@@ -119,29 +135,30 @@ export function planParkVegetation({ map, tileSize = 2, groundHeight = () => .06
         if (sectorAt(x, z) !== sector.key) continue;
         const shore = z >= LAKE_PARK.z0 && lakeRadius(x, z) > 1 && lakeRadius(x, z) < 1.095;
         const roll = rng();
-        const kind = shore && roll < .82 ? 'reeds' : roll < .22 ? 'shrub' : roll < .29 ? 'flowers' : 'grass';
+        // Las flores señalan el paseo. El prado abierto conserva pastos y arbustos,
+        // y en la franja húmeda tienen prioridad los juncos.
+        const kind = shore && roll < .82 ? 'reeds' : anchor.besideWalk && roll < .105 ? 'flowers' :
+          roll < .22 ? 'shrub' : 'grass';
         const radius = kind === 'shrub' ? .44 + rng() * .12 : .25 + rng() * .12;
         if (clusters.some(other => Math.hypot(other.x - x, other.z - z) < (other.radius + radius) * .92)) continue;
         const support = footprint(x, z, radius);
         if (!support) continue;
         const height = kind === 'reeds' ? .5 + rng() * .1 : kind === 'shrub' ? .4 + rng() * .14 : .27 + rng() * .15;
         clusters.push({ kind, x, z, ...support, radius, height, seed: hash(anchor.seed, n, 81), sector: sector.key });
-        sector.count++; counts[kind]++;
-        result.metrics.maxHeight = Math.max(result.metrics.maxHeight, height);
-        result.metrics.coveredArea += Math.PI * radius * radius;
+        sector.count++;
       }
     }
   }
-  result.metrics.clusters = clusters.length;
-  result.metrics.sectors = sectors.filter(sector => sector.count > 0).length;
-  return result;
+  return summarize(excludeFootprint
+    ? clusters.filter(({ x, z, radius }) => !excludeFootprint(x, z, footprintRadius(radius)))
+    : clusters);
 }
 
 const PALETTE = {
   grass: ['#607b45', '#7b8950', '#4b6941', '#8b8c56'],
   shrub: ['#496646', '#648056', '#77905c', '#526f53'],
   reeds: ['#7a8959', '#939362', '#627b50'],
-  flowers: ['#d0cdb2', '#c2bb83', '#b3bfa1'],
+  flowers: ['#dbcdb0', '#bd9db3', '#d5bc86'],
   seed: ['#77735a', '#96866b']
 };
 
@@ -209,8 +226,8 @@ function addCluster(batch, plant) {
       const color = choose('flowers'), center = vertex(x, h, z, color, .88);
       for (let petal = 0; petal < 5; petal++) {
         const yaw = petal / 5 * TAU;
-        const a = vertex(x + Math.cos(yaw - .4) * .032, h + .008, z + Math.sin(yaw - .4) * .032, color);
-        const b = vertex(x + Math.cos(yaw + .4) * .032, h + .008, z + Math.sin(yaw + .4) * .032, color);
+        const a = vertex(x + Math.cos(yaw - .4) * .044, h + .009, z + Math.sin(yaw - .4) * .044, color);
+        const b = vertex(x + Math.cos(yaw + .4) * .044, h + .009, z + Math.sin(yaw + .4) * .044, color);
         batch.indices.push(center, a, b);
       }
     }

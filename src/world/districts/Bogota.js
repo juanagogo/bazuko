@@ -9,6 +9,7 @@ import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
 import { setFloorWetness, wetsWithRain } from '../bogota/StreetPuddles.js';
 import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
 import { planParkVegetation, buildParkVegetation } from '../bogota/ParkVegetation.js';
+import { buildTeusaquilloGarden } from '../bogota/TeusaquilloGarden.js';
 import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
 // src/world/districts/Bogota.js
 // Centro de Bogotá (inspirado en Santa Inés / El Cartucho y la Av. Caracas).
@@ -510,7 +511,7 @@ export class Bogota {
       }),
       floor: new THREE.MeshStandardMaterial({ map: tex(concrete.map, 6), bumpMap: tex(concrete.bumpMap, 6), bumpScale: .025, roughnessMap: concrete.roughnessMap, roughness: 0.95, color: '#dedbd2' }),
       dirt: dressPaving(new THREE.MeshStandardMaterial({ map: tex(dirt.map, 8), bumpMap: tex(dirt.bumpMap, 8), bumpScale: .035, roughnessMap: dirt.roughnessMap, roughness: 1, color: '#b3a690' }), { map, key: 'dirt' }),
-      grass: new THREE.MeshStandardMaterial({ map: tex(grass.map, 8), bumpMap: tex(grass.bumpMap, 8), bumpScale: .05, roughnessMap: grass.roughnessMap, roughness: 1, color: '#c2c7ac' }),
+      grass: new THREE.MeshStandardMaterial({ map: tex(grass.map, TX.GRASS_TILE_METERS), bumpMap: tex(grass.bumpMap, TX.GRASS_TILE_METERS), bumpScale: .045, roughnessMap: grass.roughnessMap, roughness: 1, color: '#c2c7ac' }),
       plaza: new THREE.MeshStandardMaterial({ map: tex(walk.map, 6), bumpMap: walk.bumpMap, bumpScale: .035, roughnessMap: walk.roughnessMap, roughness: 0.85, color: '#dfd6be' }),
       water: createLakeWaterMaterial()
     };
@@ -541,10 +542,11 @@ export class Bogota {
     const chapineroPaving = shareSidewalk(TX.sidewalk(11, { district: 'chapinero' }));
     mats.sidewalk_chapinero = zoneMaterial('Andén de Chapinero', chapineroPaving, 6, { bumpScale: .035, roughness: .85, color: '#cdc8bc' });
     mats.sidewalk_chapinero.userData.surface = 'sidewalk';
-    const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: 8, plaza: 6, plaza_parque: TX.PARK_PAVER_METERS, water: 16,
+    const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: TX.GRASS_TILE_METERS, plaza: 6, plaza_parque: TX.PARK_PAVER_METERS, water: 16,
       road_cobbles: 2.6, sidewalk_candelaria: 6, sidewalk_chapinero: 6, plaza_candelaria: 6,
       sidewalk_cambuche: 6, sidewalk_comercio: 6, sidewalk_lago: 6 };
-    dressGrass(mats.grass, buildGroundWear(map, CAMP_WEAR));
+    const wearTexture = buildGroundWear(map, CAMP_WEAR);
+    dressGrass(mats.grass, wearTexture);
     for (const key of ['sidewalk', 'plaza', 'plaza_parque', 'sidewalk_cambuche', 'sidewalk_comercio', 'sidewalk_lago',
       'sidewalk_candelaria', 'sidewalk_chapinero', 'plaza_candelaria']) dressPaving(mats[key], { map, key });
     const heightOf = GROUND_HEIGHTS;
@@ -855,6 +857,10 @@ export class Bogota {
     const park = TEUSAQUILLO_PARK;
     for (const z of [132, 150]) for (const x of [park.x0 + 5, park.x1 - 5]) {
       this._placeBench(W(x), this.getGroundHeight(W(x), W(z)), W(z), x === park.x0 + 5 ? Math.PI / 2 : -Math.PI / 2);
+    }
+    if (map[park.z0 + 3]?.[park.x0 + 3] === 'grass') {
+      this.group.add(buildTeusaquilloGarden({ brick: m.brick, detail: m.detail, soil: this.groundMaterials.dirt },
+        (x, z) => this.getGroundHeight(x, z)));
     }
     this._add(P.placeSign(PLAZA.name, 'plaza'), W(PLAZA.x0 + 1), W(PLAZA.z1), 0);
     this._add(P.placeSign(park.name, 'park'), W(park.x0 + 2), W(park.z0 + 2), 0);
@@ -1420,7 +1426,7 @@ export class Bogota {
       object.rotation.y = tree.rotation;
       this.group.add(object);
     }
-    this.vegetationPlan = planParkVegetation(options);
+    this.vegetationPlan = planParkVegetation({ ...options, excludeFootprint: onCalle72Landing });
     const vegetation = buildParkVegetation(this.vegetationPlan, { windTime: P.foliageWind });
     // Hijos por sector: un contenedor de toda la ciudad impediría descartar jardines lejanos.
     this.group.add(...vegetation.children.slice());

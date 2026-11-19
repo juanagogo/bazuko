@@ -77,10 +77,10 @@ test('las demás texturas del suelo y de la ciudad no cambian', () => {
   }
 });
 
-test('el dibujo del césped se repite con su semilla y gasta los mismos tres mapas', () => {
+test('el dibujo denso del césped se repite con su semilla y gasta los mismos tres mapas', () => {
   const { maps, draws } = recorded(() => TX.grass(61));
   assert.equal(draws, 24, 'tres identificadores de textura');
-  assert.equal(huella(Object.values(maps).map(t => t.image.log)), '326775355ce060b9');
+  assert.equal(huella(Object.values(maps).map(t => t.image.log)), 'c94b5a89a99e610d');
 });
 
 test('el suelo de la ciudad conserva sus mallas, sus materiales y el azar que gasta', () => {
@@ -131,8 +131,8 @@ test('el sardinel pintado cambia de tono, no de geometría ni de choques', () =>
     if (!object.isMesh || object.name !== 'Calle') return;
     meshes++; vertices += object.geometry.attributes.position.count; indices += object.geometry.index?.count ?? 0;
   });
-  // El lote Calle incluye bordillos y matas del andén de Calle 72.
-  assert.deepEqual({ meshes, vertices, indices }, { meshes: 34, vertices: 334898, indices: 548223 });
+  // El lote Calle incluye el borde de césped del parque, con el paseo original alrededor del lago.
+  assert.deepEqual({ meshes, vertices, indices }, { meshes: 34, vertices: 339956, indices: 553281 });
   activateSunField(null);
 });
 
