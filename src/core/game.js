@@ -1243,6 +1243,8 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    // Lo cogieron manejando: el carro deja de ser suyo y volver a subirse es otro robo.
+    this.carjack?.reset({ perdido: true });
     this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1549,7 +1551,7 @@ export class Game {
     }
     this.street?.update(dt);
     this.witnesses?.update(dt);
-    if (!this.player.isSwimming) this.steal?.update(dt);
+    if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     // Al volante no queda ningún aviso de a pie (el retrovisor, el bolsillo) colgando de antes de subirse.

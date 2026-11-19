@@ -287,6 +287,7 @@ function gameFixture() {
   const player = Object.assign(Object.create(Player.prototype), {
     position: new THREE.Vector3(30, 0, 31.5), root: new THREE.Group(), velocity: new THREE.Vector3(),
     _impactTime: 0, _impactVelocity: new THREE.Vector3(), _respiroTumbo: 0, melee: { cancel() {} }, animateScripted() {},
+    character: { group: new THREE.Group() }, hitLean: { kick() {}, remove() {}, clear() {} },
     ragdoll: { active: false, starts: 0, start() { this.starts++; this.active = true; return true; } }
   });
   const game = Object.assign(Object.create(Game.prototype), {
@@ -357,5 +358,5 @@ test('al volante no quedan avisos de a pie, X no lanza popó y el HUD pinta el a
   assert.match(loop, /if \(!this\.player\.isStunned && !this\.player\.isSwimming && !driving && this\.input\.consumePress\('KeyX'\)\)/);
   assert.match(loop, /this\.interaction\.carjackPrompt = driving \? null : this\.carjack\?\.prompt \?\? null;/);
   const hud = readFileSync(new URL('../src/ui/HUD.js', import.meta.url), 'utf8');
-  assert.match(hud, /const carro = [^\n]*interaction\?\.carjackPrompt;\s*this\._pintarPrompt\(\[base, carro\]\.filter\(Boolean\)\.join\(' · '\), interaction\);/);
+  assert.match(hud, /const carro = [^\n]*interaction\?\.carjackPrompt;\s*this\._pintarPrompt\(\[base, carro\]\.filter\(Boolean\)\.join\(' · '\), interaction(?:, [^\n]*)?\);/);
 });
