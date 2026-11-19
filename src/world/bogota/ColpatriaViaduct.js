@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { busPathX, bridgeCenter, bridgeNormal } from './Colpatria.js';
 import { BRIDGE_RISE, BRIDGE_DECK_HEIGHT } from './BridgeElevation.js';
 import { LAKE_BRIDGE, bridgeHeight } from './LakePark.js';
+import { vestirDeConcreto, vestirTablero, vestirBarrera, vestirPilar } from './concretoViaducto.js';
 
 export const VIADUCT = Object.freeze({ start: 15.43, crestStart: 39, rampEase: 1, crestEnd: 280, join: 220, end: LAKE_BRIDGE.z1, rise: BRIDGE_RISE, connectionHeight: BRIDGE_DECK_HEIGHT, width: 14, landingWidth: 14, thickness: .65 });
 export function viaductHeight(z) {
@@ -87,7 +88,7 @@ export function viaductSurface(x, z) {
 
 export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null, groundHeight = null } = {}) {
   const group = new THREE.Group(); group.name = 'Puente continuo Colpatria–Lago';
-  const concrete = new THREE.MeshStandardMaterial({ color: '#a5aaa5', roughness: .9 });
+  const concrete = vestirDeConcreto(new THREE.MeshStandardMaterial({ color: '#a5aaa5', roughness: .9 }));
   const pavement = streetAsphalt ?? new THREE.MeshStandardMaterial({ color: '#343434', roughness: .82 });
   const yellow = new THREE.MeshStandardMaterial({ color: '#d9b735', roughness: .7 });
   const colliders = [];
@@ -106,22 +107,27 @@ export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null, gro
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute([a.x/14,a.z/14,b.x/14,b.z/14,c.x/14,c.z/14,d.x/14,d.z/14], 2));
     geometry.setIndex([0,2,1,1,2,3]); geometry.computeVertexNormals();
     const surface = new THREE.Mesh(geometry, pavement); surface.receiveShadow = true;
-    surface.name = 'Superficie del puente'; surface.userData.stationStart = z; group.add(surface);
+    surface.name = 'Superficie del puente'; surface.userData.stationStart = z;
+    surface.userData.rainCover = true;
+    group.add(surface);
     // Prisma extruido del mismo contorno: una caja inclinada puede atravesar la
     // calzada cuando varían simultáneamente el ancho, la pendiente y el eje.
     const prism = new THREE.BufferGeometry(), vertices = [];
     for (const depth of [.06, .06 + VIADUCT.thickness]) for (const p of [a,b,c,d]) vertices.push(p.x,p.y-depth,p.z);
     prism.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     prism.setAttribute('uv', new THREE.Float32BufferAttribute(vertices.flatMap((value, i) => i % 3 === 0 ? [value / 14, vertices[i + 2] / 14] : []), 2));
+    // Por debajo se ve la losa con sus juntas y por el canto los chorreones: las UV siguen el eje del puente.
+    vestirTablero(prism, z, next);
     prism.setIndex([0,2,1,1,2,3,4,5,6,5,7,6,0,1,4,1,5,4,2,6,3,3,6,7,0,4,2,2,4,6,1,3,5,3,7,5]);
     prism.computeVertexNormals();
     const deck = new THREE.Mesh(prism, concrete); deck.castShadow = deck.receiveShadow = true;
     deck.name = 'Tablero de concreto'; deck.userData.stationStart = z; group.add(deck);
     for (const [p, q] of [[a,c],[b,d]]) {
-      beam(p.clone().add(new THREE.Vector3(0,.38,0)), q.clone().add(new THREE.Vector3(0,.38,0)), .24, .7, concrete, 'Barrera lateral');
+      vestirBarrera(beam(p.clone().add(new THREE.Vector3(0,.38,0)), q.clone().add(new THREE.Vector3(0,.38,0)), .24, .7, concrete, 'Barrera lateral').geometry, z);
       beam(p.clone().add(new THREE.Vector3(0,1.05,0)), q.clone().add(new THREE.Vector3(0,1.05,0)), .11, .11, yellow, 'Baranda amarilla', false);
     }
   }
+  let pilares = 0;
   for (let z = 50; z < VIADUCT.end - 8; z += 14) {
     // Apoyos fuera de las calzadas inferiores.
     const x = busPathX(z) - 4;
@@ -132,6 +138,7 @@ export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null, gro
     const bottom = Math.min(0, groundHeight?.(x, z) ?? 0);
     const h = top - bottom;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.3, h, 1.3), concrete);
+    vestirPilar(mesh.geometry, pilares++);
     mesh.position.set(x,bottom+h/2,z); mesh.castShadow = mesh.receiveShadow = true; mesh.name = 'Pilar'; group.add(mesh);
     colliders.push(new THREE.Box3().setFromObject(mesh));
   }

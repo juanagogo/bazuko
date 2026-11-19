@@ -6,6 +6,7 @@ import { BUS_DOOR_Z, BUS_DOOR_WIDTH } from '../src/world/bogota/BusBody.js';
 import { Bogota } from '../src/world/districts/Bogota.js';
 import { BusService, doorOpening } from '../src/world/bogota/BusService.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
+import { CameraRig } from '../src/core/Camera.js';
 import { southBusPathX } from '../src/world/bogota/Colpatria.js';
 import { viaductSurface } from '../src/world/bogota/ColpatriaViaduct.js';
 import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
@@ -24,6 +25,55 @@ test('la estación propia permite recorrer la plataforma desde la rampa sin pare
   assert.equal(terminalGroundHeight(75,-30),.92);
   assert.equal(terminalGroundHeight(78.5,-30),.02);
   assert.ok(Math.abs(terminalGroundHeight(75,-58)-.02)<1e-8);
+});
+
+test('la cámara habitual conserva el paso visual bajo el techo y recupera el ángulo al salir', () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { innerWidth: 1280, innerHeight: 800, addEventListener() {} };
+  try {
+    const station = buildTransitTerminal({ asphalt: new THREE.MeshStandardMaterial() });
+    const ceiling = station.userData.cameraCeiling;
+    const collisions = new CollisionSystem();
+    collisions.colliders.push(...station.userData.colliders);
+    const release = collisions.addCameraCeiling(ceiling);
+    const rig = new CameraRig(new THREE.Scene(), { addEventListener() {} });
+    const player = new THREE.Vector3();
+    const follow = z => {
+      const x = TERMINAL.x;
+      player.set(x, terminalGroundHeight(x, z), z);
+      rig.follow(player, 0, collisions);
+      return rig.camera.position.y;
+    };
+    rig.yaw = 0;
+    let previousY = follow(-6);
+    for (let step = 1; step <= 150; step++) {
+      const y = follow(-6 - step * .1);
+      assert.ok(Math.abs(y - previousY) < .06, `salto de cámara de ${y - previousY} m`);
+      previousY = y;
+    }
+    assert.ok(previousY < ceiling.max.y - .1);
+    assert.equal(rig.pitch, .22);
+    assert.equal(rig._armDistance, 5.5);
+
+    for (const yaw of [Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      rig.yaw = yaw;
+      rig._snap = true;
+      assert.ok(follow(-22) < ceiling.max.y - .1);
+      assert.ok(rig._armDistance >= 1, 'la cámara de espaldas y costado conserva distancia al cuerpo');
+    }
+    rig.yaw = Math.PI;
+    rig._snap = true;
+    follow(-6);
+    assert.ok(Math.abs(rig.camera.position.y - (player.y + rig.lookOffset.y + 5.5 * Math.sin(.22))) < 1e-6);
+    rig.mode = 'isometric';
+    rig._snap = true;
+    assert.equal(follow(-22), 16 + TERMINAL.platformY);
+    release();
+    assert.equal(collisions.cameraCeilings.size, 0);
+    station.userData.dispose();
+  } finally {
+    globalThis.window = previousWindow;
+  }
 });
 
 test('dos buses recorren sentidos contrarios, paran cuatro segundos y respetan sus carriles', () => {
@@ -90,12 +140,14 @@ test('la estación no agrega luces, cabe en su presupuesto y se enciende de noch
   assert.ok(own.length <= 40, `llamadas de dibujo: ${own.length}`);
   assert.ok(triangles < 40000, `triángulos: ${triangles}`);
   const named = name => own.find(mesh => mesh.name === `Estación: ${name}`);
-  assert.equal(named('pools').visible, false);
-  model.userData.setNight(true);
+  // Los charcos de luz se apagan por material: la malla sigue en la estación de día y de noche.
   assert.equal(named('pools').visible, true);
+  assert.equal(named('pools').material.visible, false);
+  model.userData.setNight(true);
+  assert.equal(named('pools').material.visible, true);
   assert.ok(named('signs').material.emissiveIntensity > .5);
   model.userData.setNight(false);
-  assert.equal(named('pools').visible, false);
+  assert.equal(named('pools').material.visible, false);
   model.userData.setWetness(1);
   assert.ok(named('slab').material.roughness < .6);
   let disposed = 0;

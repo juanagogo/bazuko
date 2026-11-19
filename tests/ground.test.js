@@ -6,7 +6,7 @@ import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
 import { TILE_SIZE } from '../src/utils/constants.js';
 
 // Se comprueba la geometría real sin necesitar Canvas para las texturas.
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture() });
+const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), roughnessMap: null });
 mock.module('../src/world/bogota/textures.js', {
   namedExports: { ...textures, asphalt: textureSet, sidewalk: textureSet,
     dirt: textureSet, concrete: textureSet, cardboard: textureSet, trashBag: textureSet }

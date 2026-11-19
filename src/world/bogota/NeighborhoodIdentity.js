@@ -12,7 +12,7 @@ export const NEIGHBORHOODS = Object.freeze({
     signText: '#423f34', pavingTint: '#a79781'
   }, { style: 'painted', font: 'bold sans-serif', border: 'single', weathering: .55 }),
   comercio: profile('comercio', {
-    facadeBase: '#e3ddd0', facadeAccent: '#934c3f', plinth: '#666b69',
+    facadeBase: '#e2d5b8', facadeAccent: '#934c3f', plinth: '#666b69',
     trim: '#cfb98c', metal: '#456e6c', signBackground: '#753f38',
     signText: '#f1e4c5', pavingTint: '#aaa89e'
   }, { style: 'fascia', font: 'bold sans-serif', border: 'double', weathering: .25 }),
@@ -22,7 +22,7 @@ export const NEIGHBORHOODS = Object.freeze({
     signText: '#eee6cc', pavingTint: '#a8ad98'
   }, { style: 'painted', font: 'sans-serif', border: 'single', weathering: .18 }),
   centro: profile('centro', {
-    facadeBase: '#ddd8cf', facadeAccent: '#888b84', plinth: '#777872',
+    facadeBase: '#dccfb2', facadeAccent: '#bf8f52', plinth: '#777872',
     trim: '#bcb9af', metal: '#717b7a', signBackground: '#555d5c',
     signText: '#e5e0d3', pavingTint: '#a6a49d'
   }, { style: 'fascia', font: 'sans-serif', border: 'single', weathering: .3 }),
@@ -50,4 +50,19 @@ export function neighborhoodAt(x, z) {
   if (x >= 92 && x <= 144 && z >= 68 && z < 128) return NEIGHBORHOODS.cambuche;
   if (x >= 36 && x <= 184 && z >= 128 && z < 222) return NEIGHBORHOODS.comercio;
   return NEIGHBORHOODS.centro;
+}
+
+// Un local necesita frente a una calle. Una casa que mira al interior de un
+// parque o a un patio conserva la entrada de vivienda, incluso en Comercio.
+const SHOP_SHARE = { centro: .48, comercio: .84, cambuche: .24, lago: .18 };
+
+export function isShopFront(map, frontageTile, dx, dz, neighborhood, sample) {
+  if (sample >= (SHOP_SHARE[neighborhood.id] ?? .48)) return false;
+  const [x, z] = frontageTile;
+  for (let offset = 1; offset <= 5; offset++) {
+    const tile = map[z + dz * offset]?.[x + dx * offset];
+    if (tile === 'road' || tile === 'busway') return true;
+    if (tile !== 'sidewalk') return false;
+  }
+  return false;
 }

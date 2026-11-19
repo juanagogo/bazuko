@@ -2,6 +2,7 @@
 // Todo se dibuja por código. Sin DOM (pruebas en Node) devuelven una textura vacía con los mismos UV.
 import * as THREE from 'three';
 import { rng } from './textures.js';
+import { LOCAL_W, localRects, drawLocales } from './textures-locales.js';
 
 function newCanvas(w, h) {
   if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
@@ -304,7 +305,8 @@ export function paintAtlas() {
 // ---------- mobiliario, fachadas y azoteas ----------
 
 // El lienzo es el doble del diseño: letreros y portales se leen de cerca sin cambiar coordenadas.
-const DETAIL_W = 512, DETAIL_H = 512, DETAIL_SCALE = 2;
+// La mitad derecha es de los locales de barrio: 2048 × 1024 píxeles en total.
+const DETAIL_BASE_W = 512, DETAIL_W = DETAIL_BASE_W + LOCAL_W, DETAIL_H = 512, DETAIL_SCALE = 2;
 const CELL = 64;
 const DETAIL_NAMES = ['plain', 'concrete', 'rust', 'crate', 'tire', 'cardboard', 'sack', 'canvas',
   'tank', 'rebar', 'awning', 'awning2', 'meter', 'cloth', 'cloth2', 'cloth3',
@@ -315,8 +317,14 @@ DETAIL_NAMES.forEach((name, i) => {
   // Avisos y letreros ocupan dos celdas de ancho: necesitan leerse.
   DETAIL_RECTS[name] = [(i % 8) * CELL, Math.floor(i / 8) * CELL, CELL, CELL];
 });
+// `plain` solo necesita blanco. Comparte la primera celda con la alerta, con 8 px de margen para el filtrado.
+DETAIL_RECTS.plain = [8, 8, 48, 16];
+DETAIL_RECTS.tactile = [8, 32, 48, 24];
 // Los portales ocupan cuatro celdas: son lo que el jugador tiene más cerca en cada cuadra.
 ['door', 'door2', 'door3', 'door4'].forEach((name, i) => { DETAIL_RECTS[name] = [i * CELL * 2, CELL * 6, CELL * 2, CELL * 2]; });
+Object.assign(DETAIL_RECTS, localRects(DETAIL_BASE_W));
+// Lata de zinc de las azoteas, en el hueco que queda a la derecha de los rótulos: es larga, como una lata.
+DETAIL_RECTS.lata = [896, 368, 128, 32];
 export const DETAIL_UV = Object.fromEntries(Object.entries(DETAIL_RECTS).map(([k, v]) => {
   // Un texel de margen: el mipmap no trae el color de la celda vecina.
   const [x, y, w, h] = v;
@@ -437,6 +445,22 @@ export function detailAtlas() {
     // Casi blanca: el color lo ponen los vértices y no se multiplica dos veces.
     fill('concrete', '#ecebe5');
     grain(ctx, R.concrete, r, 900, ['rgba(70,70,66,.12)', 'rgba(255,255,250,.16)', 'rgba(50,46,40,.09)'], 1.2);
+    // Una losa de alerta con dieciséis botones, con relieve legible desde el andén.
+    // Se tiñe con el color local como el concreto y se repite tres veces al pie del paso.
+    {
+      const [x, y, w, h] = R.tactile;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(w / CELL, h / CELL);
+      ctx.fillStyle = '#918b7c'; ctx.fillRect(0, 0, CELL, CELL);
+      ctx.fillStyle = '#e4dfcc'; ctx.fillRect(2, 2, CELL - 4, CELL - 4);
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+        const cx = 9.5 + 15 * i, cy = 9.5 + 15 * j;
+        ctx.fillStyle = '#99917b'; ctx.beginPath(); ctx.arc(cx, cy + 1, 3.3, 0, 2 * Math.PI); ctx.fill();
+        ctx.fillStyle = '#f3efdc'; ctx.beginPath(); ctx.arc(cx - .6, cy - .7, 2.7, 0, 2 * Math.PI); ctx.fill();
+      }
+      ctx.restore();
+    }
     fill('rust', '#6e5a4a');
     grain(ctx, R.rust, r, 400, ['rgba(130,72,38,.6)', 'rgba(50,40,34,.6)', 'rgba(150,110,80,.35)'], 4);
     fill('crate', '#fff');
@@ -453,19 +477,68 @@ export function detailAtlas() {
     fill('sack', '#c9bc9a');
     { const [x, y] = R.sack; ctx.strokeStyle = 'rgba(90,76,50,.4)'; ctx.lineWidth = 1;
       for (let i = 0; i < 22; i++) { ctx.beginPath(); ctx.moveTo(x, y + i * 3); ctx.lineTo(x + 64, y + i * 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x + i * 3, y); ctx.lineTo(x + i * 3, y + 64); ctx.stroke(); } }
-    fill('canvas', '#8a8d84');
-    grain(ctx, R.canvas, r, 240, ['rgba(40,40,36,.2)', 'rgba(230,230,220,.16)'], 3);
-    fill('tank', '#1a1c1e');
-    { const [x, y] = R.tank; ctx.fillStyle = 'rgba(255,255,255,.07)'; for (let i = 0; i < 5; i++) ctx.fillRect(x, y + 6 + i * 13, 64, 4);
-      ctx.fillStyle = 'rgba(40,40,44,.8)'; ctx.fillRect(x, y + 58, 64, 6); }
+    fill('canvas', '#847f74');
+    grain(ctx, R.canvas, r, 240, ['rgba(40,40,36,.13)', 'rgba(210,206,194,.1)'], 1.8);
+    fill('tank', '#262522');
     fill('rebar', '#5a4336');
     grain(ctx, R.rebar, r, 240, ['rgba(120,64,30,.7)', 'rgba(36,26,20,.7)'], 3);
-    for (const [name, a, b] of [['awning', '#c9402f', '#efe6d0'], ['awning2', '#2f6a9e', '#e9e4d6']]) {
-      const [x, y] = R[name];
-      for (let i = 0; i < 8; i++) { ctx.fillStyle = i & 1 ? a : b; ctx.fillRect(x + i * 8, y, 8, 64); }
-      ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(x, y + 54, 64, 10);
+    // Lonas de fachada, viejas. Sobre un tejadillo la celda se estira catorce veces a lo ancho: las manchas van
+    // angostas y altas para verse redondas desde la calle. El desgaste sale de un azar propio de cada lona; el grano
+    // de siempre se sortea igual y queda debajo de la tela.
+    [['awning', '#a5503f', '#d8ceb4', .36], ['awning2', '#406382', '#d5cebb', .24]].forEach(([name, a, b, velo], n) => {
+      const [x, y, w, h] = R[name], q = rng(9857 + n * 7919), fin = y + h;
+      const borron = (cx, cy, rx, ry, tinta) => {
+        ctx.save(); ctx.translate(cx, cy); ctx.scale(rx, ry);
+        const g = ctx.createRadialGradient(0, 0, .1, 0, 0, 1);
+        g.addColorStop(0, tinta); g.addColorStop(1, tinta.replace(/,[^,]+\)$/, ',0)'));
+        ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+      };
       grain(ctx, R[name], r, 120, ['rgba(30,26,20,.14)'], 4);
-    }
+      // Dieciséis rayas angostas: con ocho, el faldón de un tejadillo de cuatro metros eran bloques de medio metro.
+      for (let i = 0; i < 16; i++) {
+        ctx.fillStyle = i & 1 ? a : b; ctx.fillRect(x + i * 4, y, 4, h);
+        ctx.fillStyle = q() < .5 ? `rgba(228,218,192,${(.03 + q() * .13).toFixed(2)})` : `rgba(44,38,28,${(.02 + q() * .09).toFixed(2)})`;
+        ctx.fillRect(x + i * 4, y, 4, h);
+      }
+      const sol = ctx.createLinearGradient(0, y, 0, fin);
+      sol.addColorStop(0, `rgba(214,204,176,${velo})`); sol.addColorStop(1, `rgba(196,186,158,${(velo * .4).toFixed(2)})`);
+      ctx.fillStyle = sol; ctx.fillRect(x, y, w, h);
+      for (let i = 0; i < 7; i++) { const rx = 1 + q() * 2.4, ry = 7 + q() * 13; borron(x + rx + q() * (w - rx * 2), y + ry + q() * (h - 8 - ry * 2), rx, ry, 'rgba(236,228,206,.24)'); }
+      for (let i = 0; i < 5; i++) {
+        const px = x + (i + .25 + q() * .5) * w / 5, ancho = 2 + q() * 2.5, desde = Math.max(x, px - ancho), hasta = Math.min(x + w, px + ancho);
+        const onda = ctx.createLinearGradient(px - ancho, 0, px + ancho, 0);
+        onda.addColorStop(0, 'rgba(30,26,18,0)'); onda.addColorStop(.42, 'rgba(30,26,18,.17)'); onda.addColorStop(.5, 'rgba(30,26,18,.03)');
+        onda.addColorStop(.62, 'rgba(240,232,212,.14)'); onda.addColorStop(1, 'rgba(240,232,212,0)');
+        ctx.fillStyle = onda; ctx.fillRect(desde, y, hasta - desde, h);
+      }
+      for (let i = 0; i < 9; i++) {
+        const rx = .5 + q() * .9, ry = 3.5 + q() * 7, mx = x + rx + q() * (w - rx * 2), my = y + ry + q() * h * .55;
+        borron(mx, my, rx, ry, `rgba(62,56,40,${(.2 + q() * .22).toFixed(2)})`);
+        const chorro = ctx.createLinearGradient(0, my, 0, fin);
+        chorro.addColorStop(0, 'rgba(52,46,34,0)'); chorro.addColorStop(.12, 'rgba(52,46,34,.17)'); chorro.addColorStop(1, 'rgba(52,46,34,.03)');
+        const ancho = rx * (.5 + q() * .5);
+        ctx.fillStyle = chorro; ctx.fillRect(mx - ancho / 2, my, ancho, fin - my);
+      }
+      const pared = ctx.createLinearGradient(0, y, 0, y + 7);
+      pared.addColorStop(0, 'rgba(46,40,30,.3)'); pared.addColorStop(1, 'rgba(46,40,30,0)');
+      ctx.fillStyle = pared; ctx.fillRect(x, y, w, 7);
+      for (let i = 0; i < 220; i++) {
+        const alto = 3 + q() * 5;
+        ctx.fillStyle = q() < .55 ? 'rgba(36,30,22,.08)' : 'rgba(244,236,214,.08)';
+        ctx.fillRect(x + q() * (w - .5), y + q() * (h - alto), .5, alto);
+      }
+      const dobladillo = ctx.createLinearGradient(0, fin - 11, 0, fin);
+      dobladillo.addColorStop(0, 'rgba(30,26,20,0)'); dobladillo.addColorStop(.25, 'rgba(30,26,20,.13)'); dobladillo.addColorStop(1, 'rgba(30,26,20,.24)');
+      ctx.fillStyle = dobladillo; ctx.fillRect(x, fin - 11, w, 11);
+      ctx.fillStyle = 'rgba(34,28,20,.2)'; ctx.fillRect(x, fin - 8.6, w, .6);
+      ctx.fillStyle = 'rgba(232,224,204,.26)';
+      for (let bx = x + .4; bx < x + w - .5; bx += 1.1) ctx.fillRect(bx, fin - 7.6, .5, .7);
+      for (let bx = x; bx < x + w - .3;) {
+        const paso = .4 + q() * 1.2, arriba = fin - .6 - q() * 2.4;
+        ctx.fillStyle = q() < .5 ? 'rgba(28,24,18,.32)' : 'rgba(214,206,184,.24)'; ctx.fillRect(bx, arriba, Math.min(paso * .7, x + w - bx), fin - arriba);
+        bx += paso;
+      }
+    });
     fill('meter', '#8c8f8a');
     { const [x, y] = R.meter; ctx.fillStyle = '#1b1d1e'; ctx.fillRect(x + 14, y + 8, 36, 22); ctx.fillStyle = '#e8e7dc'; ctx.beginPath(); ctx.arc(x + 32, y + 19, 8, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#505350'; ctx.fillRect(x + 8, y + 40, 48, 3); ctx.fillRect(x + 8, y + 50, 48, 3); }
@@ -513,6 +586,71 @@ export function detailAtlas() {
     drawDoors(ctx, R, r);
     fill('wood', '#6d4f33');
     { const [x, y] = R.wood; ctx.fillStyle = 'rgba(30,20,10,.3)'; for (let i = 0; i < 6; i++) ctx.fillRect(x, y + 4 + i * 11, 64, 2); }
+    drawLocales(ctx, R, r);
+    // Lo de las azoteas se ensucia al final y con azar propio: las celdas de antes gastan el de siempre.
+    const q = rng(0x5a207ea);
+    { // Concreto viejo: manchas, chorreones que bajan y la sombra de contacto abajo.
+      const [x, y, w, h] = R.canvas;
+      const mancha = (cx, cy, radio, tinta) => {
+        const g = ctx.createRadialGradient(cx, cy, radio * .15, cx, cy, radio);
+        g.addColorStop(0, tinta); g.addColorStop(1, tinta.replace(/,[^,]+\)$/, ',0)'));
+        const x0 = Math.max(x, cx - radio), y0 = Math.max(y, cy - radio);
+        ctx.fillStyle = g; ctx.fillRect(x0, y0, Math.min(x + w, cx + radio) - x0, Math.min(y + h, cy + radio) - y0);
+      };
+      for (let i = 0; i < 8; i++) mancha(x + q() * w, y + q() * h, 7 + q() * 13, i % 3 ? 'rgba(50,46,38,.24)' : 'rgba(176,170,156,.2)');
+      for (let i = 0; i < 7; i++) {
+        const sx = x + 2 + q() * (w - 8), largo = 14 + q() * 34, g = ctx.createLinearGradient(0, y, 0, y + largo);
+        g.addColorStop(0, 'rgba(40,36,30,.26)'); g.addColorStop(1, 'rgba(40,36,30,0)');
+        ctx.fillStyle = g; ctx.fillRect(sx, y, 1.2 + q() * 3.5, largo);
+      }
+      const pie = ctx.createLinearGradient(0, y + h - 9, 0, y + h);
+      pie.addColorStop(0, 'rgba(34,31,27,0)'); pie.addColorStop(1, 'rgba(34,31,27,.5)');
+      ctx.fillStyle = pie; ctx.fillRect(x, y + h - 9, w, 9);
+    }
+    { // Tanque negro mate: polvo que aclara arriba, costillas apenas marcadas y barro salpicado al pie.
+      const [x, y, w, h] = R.tank;
+      const polvo = ctx.createLinearGradient(0, y, 0, y + 20);
+      polvo.addColorStop(0, 'rgba(74,70,63,.95)'); polvo.addColorStop(.5, 'rgba(74,70,63,.6)'); polvo.addColorStop(1, 'rgba(74,70,63,0)');
+      ctx.fillStyle = polvo; ctx.fillRect(x, y, w, 20);
+      for (const fila of [24, 35, 46, 55]) {
+        ctx.fillStyle = 'rgba(255,255,255,.02)'; ctx.fillRect(x, y + fila, w, 1.5);
+        ctx.fillStyle = 'rgba(0,0,0,.16)'; ctx.fillRect(x, y + fila + 1.5, w, 1.5);
+      }
+      for (let i = 0; i < 10; i++) {
+        const sx = x + 1 + q() * (w - 6), largo = 16 + q() * 30, g = ctx.createLinearGradient(0, y + 6, 0, y + 6 + largo);
+        g.addColorStop(0, 'rgba(96,90,79,.26)'); g.addColorStop(1, 'rgba(96,90,79,0)');
+        ctx.fillStyle = g; ctx.fillRect(sx, y + 6, 1 + q() * 3, largo);
+      }
+      grain(ctx, [x, y, w - 2, h - 2], q, 260, ['rgba(120,112,98,.09)', 'rgba(10,10,9,.14)'], 1.6);
+      const pie = ctx.createLinearGradient(0, y + h - 10, 0, y + h);
+      pie.addColorStop(0, 'rgba(84,76,63,0)'); pie.addColorStop(1, 'rgba(84,76,63,.5)');
+      ctx.fillStyle = pie; ctx.fillRect(x, y + h - 10, w, 10);
+    }
+    { // Lata de zinc: galvanizado apagado, la onda a lo largo y el óxido que baja desde el traslapo.
+      const [x, y, w, h] = R.lata;
+      ctx.fillStyle = '#7b7c74'; ctx.fillRect(x, y, w, h);
+      for (let i = 0; i < 12; i++) {
+        const px = x + q() * w, ancho = 10 + q() * 30, x0 = Math.max(x, px - ancho / 2);
+        ctx.fillStyle = i % 2 ? 'rgba(98,99,92,.3)' : 'rgba(146,146,136,.24)';
+        ctx.fillRect(x0, y, Math.min(x + w, px + ancho / 2) - x0, h);
+      }
+      for (let i = 0; i < 10; i++) {
+        ctx.fillStyle = 'rgba(176,176,166,.2)'; ctx.fillRect(x, y + i * 3.2 + .3, w, 1);
+        ctx.fillStyle = 'rgba(30,30,27,.34)'; ctx.fillRect(x, y + i * 3.2 + 1.9, w, 1.1);
+      }
+      const oxido = ctx.createLinearGradient(x, 0, x + 34, 0);
+      oxido.addColorStop(0, 'rgba(104,82,68,.85)'); oxido.addColorStop(.45, 'rgba(104,82,68,.5)'); oxido.addColorStop(1, 'rgba(104,82,68,0)');
+      ctx.fillStyle = oxido; ctx.fillRect(x, y, 34, h);
+      for (let i = 0; i < 9; i++) {
+        const sy = y + q() * (h - 3), largo = 30 + q() * 70, g = ctx.createLinearGradient(x, 0, x + largo, 0);
+        g.addColorStop(0, 'rgba(112,88,74,.7)'); g.addColorStop(1, 'rgba(112,88,74,0)');
+        ctx.fillStyle = g; ctx.fillRect(x, sy, largo, 1.4 + q() * 2.8);
+      }
+      grain(ctx, [x, y, w - 3, h - 3], q, 220, ['rgba(60,58,52,.16)', 'rgba(168,168,158,.1)', 'rgba(104,84,70,.2)'], 2.4);
+      const borde = ctx.createLinearGradient(x + w - 7, 0, x + w, 0);
+      borde.addColorStop(0, 'rgba(46,42,38,0)'); borde.addColorStop(1, 'rgba(46,42,38,.5)');
+      ctx.fillStyle = borde; ctx.fillRect(x + w - 7, y, 7, h);
+    }
   }
   detailCache = { texture: finishTexture(surface), uv: DETAIL_UV };
   detailCache.texture.name = 'Atlas de mobiliario urbano';
