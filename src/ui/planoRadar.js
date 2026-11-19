@@ -93,8 +93,42 @@ export function prepararPlano(tiles) {
   for (let y = 0; y < alto; y += 2) for (let x = 0; x < ancho; x += 2) {
     const c = filas[y][x];
     const wx = originX + x * T + rm() * T * 1.4, wz = originZ + y * T + rm() * T * 1.4;
-    if (c === 'grass' && rm() < .8) { matas.moveTo(wx - .7, wz - .9); matas.lineTo(wx, wz); matas.lineTo(wx + .8, wz - 1.1); }
-    if (c === 'water' && x % 4 === 0) { olas.moveTo(wx - 2, wz); olas.quadraticCurveTo(wx - 1, wz - 1, wx, wz); olas.quadraticCurveTo(wx + 1, wz + 1, wx + 2, wz); }
+    if (c === 'grass' && rm() < .26) { matas.moveTo(wx - .8, wz - 1.1); matas.lineTo(wx, wz); matas.lineTo(wx + .9, wz - 1.4); }
+    if (c === 'plaza') {
+      juntas.moveTo(wx - .8, wz); juntas.lineTo(wx + .9, wz); juntas.lineTo(wx + .9, wz + .65);
+    }
+    if (c === 'water' && x % 4 === 0 && (radioLago(wx, wz) < .8 || radioLago(wx, wz) > 1.04)) { olas.moveTo(wx - 2, wz); olas.quadraticCurveTo(wx - 1, wz - 1, wx, wz); olas.quadraticCurveTo(wx + 1, wz + 1, wx + 2, wz); }
+  }
+  // Plazas y paseos: punteados, un punto sí y uno no para que no se vuelva una mancha.
+  const rp = azar(1538);
+  for (let y = 0; y < alto; y++) for (let x = 0; x < ancho; x++) {
+    if (filas[y][x] !== 'plaza' || (x + y) % 2) continue;
+    const wx = originX + (x + .5) * T + (rp() - .5) * .8, wz = originZ + (y + .5) * T + (rp() - .5) * .8;
+    puntos.moveTo(wx, wz);
+    puntos.lineTo(wx + .02, wz);
+  }
+  // El trazado es el mismo que se pisa. La piedra lleva dos hileras y el asfalto, franjas.
+  const rz = azar(8086);
+  for (const { x, z, dx, dz, length, width, piedra } of tiles.cruces ?? []) {
+    const mitad = width / 2 - .15;
+    if (piedra) {
+      for (const lado of [-mitad, mitad]) {
+        cebras.moveTo(x + dx * .15 + dz * lado, z + dz * .15 - dx * lado);
+        cebras.lineTo(x + dx * (length - .15) + dz * lado, z + dz * (length - .15) - dx * lado);
+      }
+    } else {
+      for (let d = .65; d < length - .3; d += 1.5) {
+        const wx = x + dx * d, wz = z + dz * d, pulso = (rz() - .5) * .2;
+        cebras.moveTo(wx - dz * mitad, wz + dx * mitad);
+        cebras.lineTo(wx + dz * mitad + dx * pulso, wz - dx * mitad + dz * pulso);
+      }
+    }
+  }
+  // Copas: un circulito por árbol, cada uno con su pulso.
+  const rc = azar(4711);
+  for (const [x, z, escala = 1] of tiles.arboles ?? []) {
+    const radio = Math.max(1.5, Math.min(3, 1.9 * escala));
+    ovaloMano(copas, x, z, radio, radio, rc, { jit: .26, n: 7, desde: rc(), vuelta: 1.1 });
   }
   let tablero = null;
   if (viaducto?.puntos?.length > 1) {

@@ -7,6 +7,8 @@ import { createBuildingShell } from './BuildingVisibility.js';
 import { Batch, ALL_FACES, NO_BACK, SKIN, FACES, shellBox, wallStripUV } from './ZoneGeometry.js';
 import { CHURCH, CHURCH_STEPS, FOUNTAIN, MARKET, TOWERS } from './EastZones.js';
 import { WALL_SHEET, TOWER_TILE, detailRect } from './ZoneTextures.js';
+import { buildPlazaFountainWater, FOUNTAIN_LIPS, fountainRimNotch } from './PlazaFountainWater.js';
+import { addFountainNozzles, plazaFountainStone } from './PlazaFountainStone.js';
 
 const T = 2;
 
@@ -238,16 +240,57 @@ const brickCell = () => {
 /** Fuente de piedra de la plaza: taza ancha, columna y un plato alto. */
 export function buildFountain(m) {
   const batch = new Batch();
-  const { x, z, radius } = FOUNTAIN, y = .12;
-  lathe(batch, m.detail, 'stoneLight', x, y, z, [[radius + .55, .02], [radius + .55, .16], [radius + .28, .2], [radius + .25, .62], [radius + .36, .66], [radius + .36, .78], [radius - .05, .8], [radius - .08, .32]], 20);
-  // Agua: disco casi a ras de la taza.
-  lathe(batch, m.detail, 'water', x, y, z, [[radius - .05, .36], [.2, .36]], 20);
-  // La taza alta también guarda agua: desde arriba se notaría seca.
-  lathe(batch, m.detail, 'water', x, y, z, [[1.34, 3.04], [.3, 3.04]], 12);
-  lathe(batch, m.detail, 'stoneGray', x, y, z,[[.92, .36], [.72, .9], [.56, 1.15], [.42, 2.2], [.58, 2.45], [1.45, 2.8], [1.55, 2.96], [1.3, 3.02], [.34, 3.1], [.26, 3.8], [.42, 3.96], [.7, 4.12], [.7, 4.2], [.2, 4.3], [.14, 4.86], [.03, 4.96]], 12);
+  const { x, z, radius, plinth } = FOUNTAIN, y = .12;
+  const finish = plazaFountainStone(m.detail, { x, y, z, radius });
+  const stone = (rect, profile, sides) => lathe(batch, m.detail, rect, x, y, z, profile, sides);
+  const wetStone = (rect, profile, sides, lip) => lathe(batch, finish, rect, x, y, z, profile, sides,
+    lip && (angle => fountainRimNotch(lip, angle)));
+  const point = (r, angle, height) => [x + Math.sin(angle) * r, y + height, z + Math.cos(angle) * r];
+  const basinSides = 40, tau = Math.PI * 2;
+
+  // Cimiento, hilada de sillares y solera. Se mantienen el diámetro y los niveles del remate.
+  stone('stoneGray', [[radius + .51, 0], [radius + plinth, .032], [radius + plinth, .109],
+    [radius + .51, .145], [radius + .33, .16], [radius + .29, .195]], basinSides);
+  for (let i = 0; i < basinSides; i++) {
+    const a = i / basinSides, b = (i + 1) / basinSides;
+    batch.quadUV(m.ashlar, point(radius + .29, a * tau, .195), point(radius + .29, b * tau, .195),
+      point(radius + .25, b * tau, .62), point(radius + .25, a * tau, .62),
+      [a * 4, .006, b * 4, .006, b * 4, .075, a * 4, .075]);
+  }
+  wetStone('stoneLight', [[radius + .25, .62], [radius + .36, .668], [radius + .36, .746],
+    [radius + .30, .788], [radius - .05, .8], [radius - .075, .738]], basinSides);
+  wetStone('stoneGray', [[radius - .075, .738], [radius - .086, .385], [radius - .11, .366],
+    [.84, .366]], basinSides);
+
+  stone('stoneGray', [[.92, .344], [.92, .465], [.88, .5], [.8, .54], [.71, .88],
+    [.68, .925], [.67, 1.015], [.57, 1.08]], 48);
+  const flutes = [[.57, 1.08, 0], [.55, 1.19, .043], [.43, 2.16, .034], [.45, 2.28, 0]];
+  for (let row = 0; row < flutes.length - 1; row++) for (let i = 0; i < 48; i++) {
+    const carved = ([r, h, cut], s) => point(r - (s % 4 === 1 || s % 4 === 2 ? cut : 0), s * tau / 48, h);
+    batch.quad(m.detail, carved(flutes[row], i), carved(flutes[row], i + 1),
+      carved(flutes[row + 1], i + 1), carved(flutes[row + 1], i), 'stoneGray');
+  }
+
+  // Los reboses salen por cuatro pasos labrados en cada labio.
+  const { bowl, crown } = FOUNTAIN_LIPS;
+  wetStone('stoneGray', [[.45, 2.28], [.48, 2.32], [.51, 2.385], [.58, 2.45],
+    [1.36, 2.77], [1.46, 2.85], [1.53, 2.927], [1.55, 2.967]], bowl.sides);
+  wetStone('stoneLight', [[1.55, 2.967], [1.55, 3.013, .009], [1.512, 3.048, .039],
+    [1.477, 3.052, .044], [1.435, 3.027, .016]], bowl.sides, bowl);
+  wetStone('stoneGray', [[1.435, 3.027, .016], [1.38, 2.991], [.31, 2.963],
+    [.3, 3.13], [.28, 3.25], [.257, 3.765], [.28, 3.84], [.42, 3.96], [.7, 4.12]], bowl.sides, bowl);
+  wetStone('stoneLight', [[.7, 4.12], [.7, 4.182, .016], [.673, 4.208, .046],
+    [.622, 4.214, .054], [.594, 4.17, .01]], crown.sides, crown);
+  wetStone('stoneGray', [[.594, 4.17, .01], [.55, 4.144], [.24, 4.138], [.2, 4.3],
+    [.14, 4.86], [.03, 4.96], [0, 4.96]], crown.sides, crown);
+  stone('iron', [[.167, 4.617], [.175, 4.624], [.173, 4.657], [.162, 4.666]], 24);
+  addFountainNozzles(batch, m.detail, x, y, z);
   const group = new THREE.Group();
   group.name = 'Fuente de la plaza';
-  batch.finish(group, { name: 'Fuente de la plaza', castShadow: true });
+  batch.finish(group, { name: 'Fuente de la plaza', castShadow: true, visualOnly: [m.ashlar, finish] });
+  const water = buildPlazaFountainWater({ x, y, z, radius });
+  group.add(water);
+  group.userData.water = water;
   return group;
 }
 

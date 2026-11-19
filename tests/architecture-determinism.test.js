@@ -90,9 +90,12 @@ function architecture(seed, churn) {
 test('la arquitectura no cambia con el azar global ni con más creaciones de texturas y materiales', () => {
   const first = architecture(89123, false);
   assert.deepEqual(architecture(17, true), first);
-  // Capturados antes de separar el azar arquitectónico: el mapa y sus sólidos siguen exactos.
-  // El oriente se añadió sin mover nada: recortado a la ciudad anterior, da los mismos valores.
-  assert.equal(first.oldMap, 'ad927fbac5cbcbb2fae2f8b8b0ae0f64a4beda7492b1c482c317d04b35ec8f9c');
+  // Huella de la ciudad completa en 3efc37e. Los parques admiten intercambiar prado y
+  // pavimento peatonal. Todos los demás terrenos deben conservar su tipo y posición.
+  assert.equal(first.footprint, 'e7d8227e027300bd74365b2feb05cab85e16bb084cedb2a96b036873b57569cc');
+  // El terreno de la porción anterior al oriente incorpora los paseos y ensanches de los
+  // parques. Sus sólidos conservan la huella original.
+  assert.equal(first.oldMap, '8d77d1697765620dbe3a043941b9d5d4b1e7f8d18fc3bac87cadcefa5f320b3c');
   assert.equal(first.oldColliders, '6b8d21ce0063a9a7ef0f4f4bfb43608e02335553ab98206151f237594ef3dd0d');
 });
 

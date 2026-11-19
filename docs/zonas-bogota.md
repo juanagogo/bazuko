@@ -17,6 +17,7 @@ Ladrillo rojo, casas de estilo inglés con hastiales y ventanas en saliente, ant
 - **Calle 7 comercial.** Locales con cortina metálica, toldo y avisos inventados, y un puesto de fritanga.
 - **Plaza de mercado.** Seis puestos con toldos de lona o a franjas, canastas de fruta y verdura, y costales. Bloquea el paso solo por donde hay mesas.
 - **Parque de Teusaquillo y torres de ladrillo.** Tres arcos curvos de ladrillo, escalonados, inspirados en los conjuntos de ladrillo bogotanos. Sólidos en su curva real: la colisión son tiras de medio metro que siguen la planta (`towerColliderBoxes`). Se ven desde todo el barrio: su bruma tiene tope y ni la cámara ni el descarte las cortan en el plano lejano. Cerca del horizonte, torres, cerros y ciudad de fondo se hunden en una bruma que depende del ángulo de la mirada: con neblina, lluvia, al atardecer o de noche sube más y con el día despejado queda abajo, para que la ciudad real, que a esa distancia ya es solo niebla, no se recorte contra ellos.
+El adoquín de barro en canasta identifica los caminos. En los parques de la Estación y del Sur las bancas quedan en ensanches a los lados del paseo. Allí y en el Tercer Milenio, el GPS lleva a la cara libre de cada pila pública para lavarse o llenar la botella. En el Parque del Lago, tres entradas desde la Carrera 5 conectan con el paseo y cinco bancas miran al agua.
 
 ## El borde
 
@@ -34,6 +35,7 @@ Detrás de todo está `CityBackdrop.js`: **de tres a siete llamadas de dibujo** 
 
 - **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
 - **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas.
+- **Entre la ciudad y los cerros.** Frente al Lago, las manzanas de fondo reúnen viviendas de ladrillo y pañete con algunos locales y azoteas a distintas alturas. Las cabeceras sobre el parque tienen vanos salteados y cuerpos bajos de servicio. Detrás de La Candelaria aparecen frentes más estrechos, zócalos y cubiertas a dos aguas.
 - **Más allá de la Candelaria,** hacia +X, un cerro alto con iglesia blanca en la cumbre, torres de teleférico y cabinas.
 - **Al sur,** un barrio de ladrillo trepando la ladera, con casitas que se encienden de noche.
 

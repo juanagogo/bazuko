@@ -176,3 +176,11 @@ test('routeLengthTo desde la acera de un edificio mide hasta esa acera, no hasta
     assert.ok(meters < 1, `${name}: ${meters}`);
   }
 });
+
+test('el GPS sigue el paseo del lago y puede terminar en un punto preciso del césped', () => {
+  const entrance = { x: 250, z: 262 }, lawn = { x: 145.1, z: 269.3 };
+  assert.ok(gps.costAt(180, 262) < gps.costAt(lawn.x, lawn.z));
+  assert.ok(gps.setWaypoint(lawn, entrance, 0));
+  assert.ok(gps.route.some(p => p.x < 165 && p.z === entrance.z), 'sigue por el paseo hasta cerca del destino');
+  assert.deepEqual(gps.route.at(-1), lawn);
+});

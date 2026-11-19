@@ -46,8 +46,9 @@ import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, south
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
 import { TERMINAL, inTerminal, terminalGroundHeight, buildTransitTerminal, crossesIslandEdge, crowdsIslandPole, islandAisleX, underTerminalRoof } from '../bogota/TransitTerminal.js';
 import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, buildLakeTerrain,
-  inLakeTerrain, lakeTerrainHeight, lakeWaterInfo } from '../bogota/LakePark.js';
+  inLakeTerrain, lakeTerrainHeight, lakeWaterInfo, LAKE_LOOKOUTS } from '../bogota/LakePark.js';
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
+import { attachLakeBridgeReflection } from '../bogota/LakeBridgeReflection.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
@@ -256,6 +257,11 @@ export class Bogota {
     // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
     const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
     this.group.add(metro);
+    this.rainCover = buildRainCover(viaduct, this.stationGroup, gasStation, metro);
+    this.lakeWater.material.userData.setRainCover(this.rainCover);
+    attachLakeBridgeReflection(this.lakeWater, LAKE_PARK, viaduct, metro, {
+      backdrop: this.backdrop, buildings: this.buildingVisibility, tower, getQuality: () => this.graphicsQuality
+    });
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
     }
@@ -264,8 +270,9 @@ export class Bogota {
       ...EXTENSION_PARKS.map(park => ({ x0: W(park.x0 + .5), x1: W(park.x1 - .5), z0: W(park.z0 + .5), z1: W(park.z1 - .5) })),
       { x0: W(PLAZA.x0 + 2), x1: W(PLAZA.x0 + 16), z0: W(PLAZA.z0 + 2), z1: W(PLAZA.z1 - 2) }
     ];
-    this.pigeonFlocks = parks.map(bounds => new PigeonFlock(scene, bounds, {
+    this.pigeonFlocks = parks.map((bounds, i) => new PigeonFlock(scene, bounds, {
       groundHeight: (x, z) => this.getGroundHeight(x, z),
+      groundCutout: i === parks.length - 1 ? { x: FOUNTAIN.x, z: FOUNTAIN.z, radius: FOUNTAIN.radius + FOUNTAIN.plinth } : null,
       isGround: (x, z) => ['grass', 'plaza'].includes(map[Math.round(z / T)]?.[Math.round(x / T)]) &&
         Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) > 6
     }));
@@ -573,10 +580,10 @@ export class Bogota {
     mats.curb_stone = new THREE.MeshStandardMaterial({ color: '#8a8478', roughness: .9, map: tex(concrete.map, 4), bumpMap: tex(concrete.bumpMap, 4), bumpScale: .03 });
     this.groundMaterials = mats;
     const landHeightAt = (x, z) => this._lakeLandHeight(x, z);
-    const lakePaving = mats.sidewalk_lago;
-    this.lakeTerrain = buildLakeTerrain(landHeightAt, { groundMap: mats.grass.map,
+    const lakePaving = mats.plaza_parque;
+    this.lakeTerrain = buildLakeTerrain(landHeightAt, { groundMap: mats.grass.map, groundScale: TX.GRASS_TILE_METERS, wearTexture,
       groundBumpMap: mats.grass.bumpMap, groundTint: mats.grass.color,
-      plazaMap: lakePaving.map, plazaBumpMap: lakePaving.bumpMap, plazaTint: lakePaving.color });
+      plazaScale: TX.PARK_PAVER_METERS, plazaMaterial: lakePaving, waterUniforms: mats.water.userData.uniforms });
     this.lakeWater = buildLakeWater(mats.water, landHeightAt);
     this.group.add(this.lakeTerrain, this.lakeWater);
     this.animated.push(this.lakeWater);
@@ -588,6 +595,8 @@ export class Bogota {
   /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
   setRain(intensity = 0) {
     this.rainNow = Math.max(0, intensity);
+    this.lakeWater?.material.userData.setRain?.(Math.min(1, this.rainNow));
+    this.fountainWater?.userData.setRain(Math.min(1, this.rainNow));
   }
 
   /** Cebras en los cruces, líneas amarillas y separadores de la troncal */
@@ -778,6 +787,8 @@ export class Bogota {
     const m = this.zoneMaterials;
     const fountain = buildFountain(m);
     this.group.add(fountain);
+    this.fountainWater = fountain.userData.water;
+    this.animated.push(this.fountainWater);
     const addCollider = ({ x, z, w, d, h }) => {
       if (!collisions) return;
       const object = new THREE.Object3D();
@@ -1312,10 +1323,11 @@ export class Bogota {
   }
 
   _buildLakePark() {
-    for (const [x, z] of [[20, 226], [132, 236], [134, 288], [20, 310], [156, 310]]) {
-      this._placeBench(x, this.getGroundHeight(x, z), z, 0);
+    for (const { x, z } of LAKE_LOOKOUTS) {
+      const facing = Math.atan2(LAKE_PARK.lakeX - x, LAKE_PARK.lakeZ - z);
+      this._placeBench(x, this.getGroundHeight(x, z), z, facing);
     }
-    this._add(P.streetSign([LAKE_PARK.name, 'Lago · Puente TransMilenio']), 150, 226);
+    this._add(P.placeSign(LAKE_PARK.name, 'park'), W(CARRERA_5[0] - 3), LAKE_PARK.lakeZ - 2, Math.PI / 2);
   }
 
   _buildGreenery() {
@@ -1693,9 +1705,11 @@ export class Bogota {
       else if (Array.isArray(value)) value.forEach(rememberTexture);
     };
     const rememberTextures = material => {
-      // El shader de ribera posee y libera su detalle; los mapas del parque son compartidos.
-      const ownedDetail = material?.userData?.uniforms?.lakeShoreDetail?.value;
-      if (ownedDetail) ownedTextures.add(ownedDetail);
+      // El shader de ribera posee y libera su detalle, y el agua del lago su rizo; los mapas del parque son compartidos.
+      for (const owned of ['lakeShoreDetail', 'lakeRipples']) {
+        const texture = material?.userData?.uniforms?.[owned]?.value;
+        if (texture) ownedTextures.add(texture);
+      }
       for (const value of Object.values(material ?? {})) rememberTexture(value);
       for (const uniforms of [material?.uniforms, material?.userData?.uniforms]) {
         for (const uniform of Object.values(uniforms ?? {})) rememberTexture(uniform?.value);
