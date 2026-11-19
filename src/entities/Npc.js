@@ -193,6 +193,7 @@ export class Npc {
    */
   constructor(scene, position, opts = {}) {
     this.scene = scene;
+    this.routeRandom = opts.routeRandom ?? Math.random;
     this.home = position.clone();
     this.position = position.clone();
     this.wander = opts.wander ?? 0;
@@ -201,9 +202,9 @@ export class Npc {
     // Quién es: `gastada` es habitante de calle y, si no, lo decide la zona. Un `look` dado o un subtipo
     // (escuadrón, conductor bravo) no tienen arquetipo ni conductas: los lleva su propio sistema.
     const arquetipo = opts.look || this.constructor !== Npc ? null
-      : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona));
+      : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona, opts.personRandom));
     const low = LOW_STANCES.has(opts.fijo?.stance);
-    this.person = arquetipo ? rollPerson(arquetipo, { sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
+    this.person = arquetipo ? rollPerson(arquetipo, { random: opts.personRandom, sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
     this.walkSpeed = opts.speed ?? this.person?.speed ?? (0.85 + Math.random() * 0.45);
     this.route = [];
     this.routeIndex = 0;
@@ -318,10 +319,28 @@ export class Npc {
     })().catch((e) => { this.loadError = e; console.warn('[Npc] no se pudo crear', e); });
   }
 
+  /** Una visita puede empezar desde su ruta normal en el andén, si no está atendiendo otro suceso. */
+  canStartVisit() {
+    return this.person && !this.isVendor && !this.fijo && !this.walkVisit && !this.action && !this.talk && !this._witness &&
+      !this.koState && !this.fleeTimer && !this.staggerTimer && !this._riseLeft && !this._standingUp &&
+      !LOW_STANCES.has(this.stance) && !this.mind?.aware.busy();
+  }
+
+  startVisit(spot, route, { facing, stance, wait, entry, stops, safeStops = stops, alternas, sheltered = false }) {
+    if (this._disposed || this.isDead) return;
+    this.walkVisit = { spot, entry, stops, safeStops, facing, stance, wait, alternas, sheltered, scared: false };
+    this.route = route;
+    this.routeIndex = 0;
+    this.target = route[0];
+    this.wait = 0;
+    this.stance = pickWalk(this.person, this.routeRandom);
+  }
+
   /** Su arquetipo vestido con lo que de verdad hay en el catálogo; sin arquetipo, la apariencia de calle. */
   async _personLook(opts) {
     if (!this.person) return randomStreetLook({ gastada: opts.gastada });
-    const look = personLook(this.person);
+    const look = personLook(this.person, opts.personRandom);
+    if (opts.delantal) look.delantal = opts.delantal;
     look.real = normalizeReal(await loadCatalog(), this.person.real);
     return look;
   }
@@ -455,6 +474,7 @@ export class Npc {
     if (this.fleeTimer > 0) {
       this.fleeTimer = Math.max(0, this.fleeTimer - dt);
       if (this.isVendor) return; // no deja su puesto
+      if (this.walkVisit) this.walkVisit.scared = true;
       if (this._cowering) {
         if (this.fleeTimer <= 0) this._stopCowering();
         return;
@@ -475,7 +495,17 @@ export class Npc {
     if (this.fijo && this._stayAtSpot(dt)) return;
     if (!this.navigation && this.wander <= 0 && !this.fijo) return;
     if (!this.target) {
-      if ((this.wait -= dt) > 0) return;
+      if ((this.wait -= dt) > 0) {
+        if (this._atVisit()) {
+          const { facing, alternas, wait } = this.walkVisit;
+          this.root.rotation.y += wrapAngle(facing - this.root.rotation.y) * Math.min(1, dt * CONDUCT.turn);
+          if (alternas) {
+            const phase = Math.max(0, Math.min(alternas.length - 1, Math.floor((1 - this.wait / wait) * alternas.length)));
+            this.stance = alternas[phase];
+          }
+        }
+        return;
+      }
       if (this.person && this._standUp()) return;
       if (this.navigation) {
         this.route = this._chooseRoute();
@@ -585,7 +615,7 @@ export class Npc {
     if (!navigation?.createRoute) return false;
     let best = null, score = -Infinity;
     for (let i = 0; i < 3; i++) {
-      const route = navigation.createRoute(this.position);
+      const route = navigation.createRoute(this.position, this.routeRandom);
       if (!route.length) continue;
       const end = route.at(-1), dx = end.x - this.position.x, dz = end.z - this.position.z;
       const value = Math.hypot(dx, dz) + (dx * this._fleeAwayX + dz * this._fleeAwayZ);
@@ -689,11 +719,22 @@ export class Npc {
 
   /** El arraigo: lejos de su sitio prefiere volver, y así cada zona conserva a su gente. */
   _chooseRoute() {
-    const route = this.navigation.createRoute(this.position);
+    if (this.walkVisit) {
+      const visit = this.walkVisit, { spot, entry, stops } = visit, leaving = this._atVisit();
+      if (visit.scared && (!this._player || spot.distanceToSquared(this._player) >= CONDUCT.returnClear ** 2)) visit.scared = false;
+      const exits = visit.scared ? visit.safeStops : stops;
+      const goal = leaving || visit.scared ? exits[Math.floor(this.routeRandom() * exits.length)] : spot;
+      const visitRoute = this.navigation.routeTo(this.position, goal);
+      if (visitRoute.length) {
+        if (leaving && this.position.distanceToSquared(entry) > .01) visitRoute.unshift(entry);
+        return visitRoute;
+      }
+    }
+    const route = this.navigation.createRoute(this.position, this.routeRandom);
     if (!this.person || !route.length) return route;
     const away = (list) => (list.at(-1).x - this.home.x) ** 2 + (list.at(-1).z - this.home.z) ** 2;
     if (away(route) < CONDUCT.rooted ** 2) return route;
-    const other = this.navigation.createRoute(this.position);
+    const other = this.navigation.createRoute(this.position, this.routeRandom);
     return other.length && away(other) < away(route) ? other : route;
   }
 
@@ -703,6 +744,11 @@ export class Npc {
    */
   _takeStop() {
     this.stance = null;
+    if (this._atVisit()) {
+      this.stance = this.walkVisit.stance;
+      this.wait = this.walkVisit.wait;
+      return;
+    }
     const node = this.navigation.nodes?.[this.navigation.nodeAt?.(this.position.x, this.position.z)];
     const wet = this._raining && this.person.paraguas === null;
     if (!node || node.crossing || wet || Math.random() >= this.person.pausa) {
@@ -713,6 +759,10 @@ export class Npc {
     if (what === SEARCH_ACTION) this.action = what;
     else this.stance = what;
     this.wait = CONDUCT.stopMin + Math.random() * CONDUCT.stopExtra;
+  }
+
+  _atVisit() {
+    return !!this.walkVisit && this.position.distanceToSquared(this.walkVisit.spot) < .12 ** 2;
   }
 
   /** Quien está en el piso o agachado se para antes de andar. true: todavía no sale. */
@@ -851,8 +901,9 @@ export class Npc {
     if (this._noseTimer > 0 && person.nariz) return 'nariz';
     // Conversando ya en su sitio: gesticula al hablar y escucha a su manera. Con paraguas bajo la lluvia, lo conserva.
     const talk = this.talk;
-    if (talk?.ready && talk.stance && !(this._raining && person.paraguas !== null)) return talk.stance;
-    if (this._raining && !this.isVendor && !(this.fijo?.techo && !this.fijo.out)) {
+    const sheltered = (this.fijo?.techo && !this.fijo.out) || (this.walkVisit?.sheltered && this._atVisit());
+    if (talk?.ready && !(this._raining && person.paraguas !== null && !sheltered)) return talk.stance ?? null;
+    if (this._raining && !this.isVendor && !sheltered) {
       if (person.paraguas !== null) return 'paraguas';
       if (this.moving || this.fijo) return this._rainReaction() ?? this.stance;
     }
@@ -1051,7 +1102,7 @@ export class Npc {
       ...this.poseParams,
       state: this.state, action: this.action, actionProgress: this.actionProgress,
       attack: this._counterPose ?? this.poseParams?.attack,
-      look: this.poseParams?.look ?? this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance), // mira lo que le llama la atención
+      look: this.poseParams?.look ?? (stance === 'mirar-surtido' ? 0 : this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance)), // mira lo que le llama la atención
       // Caer sigue a la misma mezcla que acuesta el cuerpo.
       stance,
       style: this.poseParams?.style ?? this.style,

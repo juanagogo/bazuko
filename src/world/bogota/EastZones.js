@@ -29,7 +29,7 @@ const EAST_START = CARRERA_5[1] + 1;
 
 export const PLAZA = Object.freeze({ x0: 136, x1: 172, z0: 18, z1: 37, name: 'Plaza de la Candelaria' });
 export const CHURCH = Object.freeze({ x0: 160, x1: 171, z0: 23, z1: 32 });
-export const FOUNTAIN = Object.freeze({ x: 294, z: 55, radius: 3.6 });
+export const FOUNTAIN = Object.freeze({ x: 294, z: 55, radius: 3.6, plinth: .55 });
 export const TEUSAQUILLO_PARK = Object.freeze({ x0: 158, x1: 173, z0: 124, z1: 159, name: 'Parque de Teusaquillo' });
 export const TOWERS_LOT = Object.freeze({ x0: 178, x1: 198, z0: 124, z1: 159, name: 'Torres de ladrillo' });
 export const MARKET = Object.freeze({ x0: 161, x1: 170, z0: 81, z1: 90, name: 'Plaza de mercado' });
@@ -60,6 +60,14 @@ export function churchStepHeight(x, z) {
     if (x >= CHURCH_FRONT_X - depth && side <= CHURCH_HALF_Z - inset) height = top;
   }
   return height;
+}
+
+// La pose consulta el apoyo debajo de cada zapato al bordear o pasar de una grada a otra.
+const churchFootHeight = (x, z) => churchStepHeight(x, z) ?? .12;
+export function churchFootSupport(x, z) {
+  const { depth, inset } = CHURCH_STEPS[0], stride = .7;
+  const beside = Math.abs(z - CHURCH_CENTER_Z) <= CHURCH_HALF_Z - inset + stride;
+  return beside && x >= CHURCH_FRONT_X - depth - stride && x < CHURCH_FRONT_X ? churchFootHeight : null;
 }
 
 /** Torres y portada sobresalen de los tiles de la nave: esta franja es sólida de lado a lado, con zócalo incluido. */
@@ -109,7 +117,7 @@ export function paintEastCity(map) {
   }
   // Empalme con el parque del lago: el pasto sigue hasta el andén de la Carrera 5.
   fill(map, EAST_SEAM, 125, 111, height, 'grass');
-  for (const z of [113, 155]) fill(map, EAST_SEAM, 125, z, z, 'plaza');
+  for (const z of [113, 131, 155]) fill(map, EAST_SEAM, 125, z, z, 'plaza');
 
   // Carrera 5, la avenida que separa el centro de los barrios nuevos.
   fill(map, CARRERA_5[0] - 2, CARRERA_5[1] + 2, 1, height, 'sidewalk');

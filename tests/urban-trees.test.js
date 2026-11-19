@@ -101,6 +101,21 @@ test('el viento usa datos separados de UV y el mismo desplazamiento en color y p
   assert.equal(depth.fragmentShader, '#include <alphatest_fragment>');
 });
 
+test('el envés recibe luz transmitida después de las sombras direccionales y conserva su mapa recortado', () => {
+  const foliage = leaves(createUrbanTree(1, { seed: 41 }));
+  const shader = { ...THREE.ShaderLib.standard, uniforms: {} };
+  foliage.material.onBeforeCompile(shader);
+  const direct = shader.fragmentShader.slice(shader.fragmentShader.indexOf('#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )'));
+  const transmission = direct.indexOf('float throughLeaf');
+  const field = direct.indexOf('directLight.color *= sunFieldLit;'), shadow = direct.indexOf('getShadow( directionalShadowMap');
+  assert.ok(field >= 0 && field < transmission);
+  assert.ok(shadow >= 0 && shadow < transmission);
+  assert.ok(direct.indexOf('#if ( NUM_RECT_AREA_LIGHTS > 0 )') > transmission);
+  assert.match(direct, /directLight\.color\s*\n\s*\* throughLeaf/);
+  assert.match(shader.fragmentShader, /#include <alphatest_fragment>/);
+  assert.equal(foliage.customDepthMaterial.map, foliage.material.map);
+});
+
 test('los lotes del distrito conservan colores, UV, semillas y sombra del follaje', () => {
   const group = new THREE.Group(), phases = new Set(), expected = new THREE.Box3();
   for (let i = 0; i < 6; i++) {

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { busGeometry, busTextures, busWipers, WINDSHIELD_GLSL } from './BusBody.js';
 import { chainSunField } from './SunFieldShader.js';
+import { TECHO_UV } from './mugreArticulado.js';
+import { streetWetness } from '../../character/streetMaterials.js';
 
 /**
  * Bus articulado: dos secciones, un fuelle con tres huesos y seis ruedas, armados por código sobre las medidas de
@@ -34,7 +36,7 @@ const inverse = new THREE.Matrix4();
 const WIPER_CYCLES_PER_SECOND = .7, WIPER_SWEEP = 1.2;
 
 /** Inyecta en el material el corrimiento de las hojas de puerta y, en el vidrio, un reflejo más fuerte que el de un dieléctrico. */
-function patchMaterial(material, { door = null, reflectance = null, alpha = null, lampNight = null, coat = 0, wiper = null }) {
+function patchMaterial(material, { door = null, reflectance = null, alpha = null, lampNight = null, coat = 0, wiper = null, mate = false }) {
   material.onBeforeCompile = shader => {
     if (wiper) {
       // Solo las piezas del limpiabrisas tienen UV: giran sobre su pivote y se pegan a la curva del vidrio.
@@ -49,10 +51,20 @@ function patchMaterial(material, { door = null, reflectance = null, alpha = null
     transformed.xy = swept;
   }`);
     }
+    if (mate) {
+      // Lo que el mapa ensucia pierde el brillo, y el techo es mate entero; con aguacero todo sale más oscuro y más liso.
+      shader.uniforms.uMojado = streetWetness;
+      shader.fragmentShader = `uniform float uMojado;\n${shader.fragmentShader}`
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  float busMate = clamp((.92 - sampledDiffuseColor.g) * 1.4, 0., 1.);
+  busMate = max(busMate, step(vMapUv.y, ${TECHO_UV.v.toFixed(4)}) * step(${TECHO_UV.u.toFixed(4)}, vMapUv.x) * .9);
+  roughnessFactor = mix(roughnessFactor, .86, busMate) * (1. - .45 * uMojado);
+  diffuseColor.rgb *= 1. - .1 * uMojado;`);
+    }
     if (coat) {
       // Laca de bus: refleja el doble que una pintura común, y sin aclarar el rojo con un material metálico.
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n  material.specularColorBlended = vec3(${coat.toFixed(3)});`);
+        .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n  material.specularColorBlended = vec3(${coat.toFixed(3)})${mate ? ' * (1. - .75 * busMate)' : ''};`);
     }
     if (lampNight) {
       // Cada lámpara guarda en la UV su brillo de día y de noche: faros, cornisas y stops comparten malla y material.
@@ -76,7 +88,7 @@ function patchMaterial(material, { door = null, reflectance = null, alpha = null
         .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n  material.specularColorBlended = vec3(glassReflectance);');
     }
   };
-  material.customProgramCacheKey = () => `bus:${door ? 'puerta' : ''}:${reflectance ? 'vidrio' : ''}:${lampNight ? 'lampara' : ''}:${coat}:${wiper ? 'plumilla' : ''}`;
+  material.customProgramCacheKey = () => `bus:${door ? 'puerta' : ''}:${reflectance ? 'vidrio' : ''}:${lampNight ? 'lampara' : ''}:${coat}:${wiper ? 'plumilla' : ''}:${mate ? 'mate' : ''}`;
   return chainSunField(material);
 }
 
@@ -184,7 +196,7 @@ export class ArticulatedBusRig {
     }), { door, reflectance: this.reflectanceUniform, alpha: this.glassAlphaUniform }));
     this.signMaterial = own(new THREE.MeshBasicMaterial({ name: 'letrero', toneMapped: false }));
     return {
-      paint: own(patchMaterial(new THREE.MeshStandardMaterial({ name: 'pintura', vertexColors: true, map: shared.grime, roughness: .24, metalness: .04 }), { coat: .09 })),
+      paint: own(patchMaterial(new THREE.MeshStandardMaterial({ name: 'pintura', vertexColors: true, map: shared.grime, roughness: .24, metalness: .04 }), { coat: .09, mate: true })),
       matte: own(patchMaterial(new THREE.MeshStandardMaterial({ name: 'caucho', vertexColors: true, roughness: .62, metalness: 0 }), { door, wiper: this.wiperUniform })),
       interior: this.interiorMaterial,
       lamps: this.lampMaterial,
@@ -233,8 +245,8 @@ export class ArticulatedBusRig {
   /** Las luces interiores y de posición son emisivas: nada de luces reales por bus. */
   setNight(isNight) {
     this.night = isNight;
-    // De día el interior se ve apagado detrás del tinte; de noche manda la luz de adentro y el vidrio casi no refleja.
-    this.interiorMaterial.color.setRGB(...(isNight ? [1.45, 1.28, 1.02] : [.72, .72, .72]));
+    // De día el interior se ve apagado detrás del tinte; de noche manda la luz fría de adentro y el vidrio casi no refleja.
+    this.interiorMaterial.color.setRGB(...(isNight ? [1.12, 1.22, 1.36] : [.72, .72, .72]));
     this.lampNightUniform.value = isNight ? 1 : 0;
     this.reflectanceUniform.value = isNight ? .05 : .2;
     this.glassAlphaUniform.value = isNight ? .62 : 1;

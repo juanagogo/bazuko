@@ -62,10 +62,13 @@ export class RebusqueSystem {
   /** Con la mano en un bolsillo ajeno no se trabaja: las dos cosas no van juntas. */
   _robando() { return !!this.game.steal?.minigameActive; }
 
+  /** Al volante, o subiendo o bajando del carro, el cuerpo es del carro (CarjackSystem): tampoco se trabaja. */
+  _enElCarro() { const carjack = this.game.carjack; return !!(carjack?.driving || carjack?.transition); }
+
   _puedeTrabajar() {
     const p = this.game.player;
     if (!p?.position || p.isStunned || p.isSwimming || p.isRagdollActive || p.hasCart) return false;
-    return !this._robando();
+    return !this._robando() && !this._enElCarro();
   }
 
   get _signals() { return this.game.traffic?.signals ?? null; }

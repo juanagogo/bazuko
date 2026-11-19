@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { busPathX } from './Colpatria.js';
 import { BRIDGE_RISE } from './BridgeElevation.js';
-import { createLakeWaterMaterial } from './LakeWaterMaterial.js';
+import { createLakeWaterMaterial, LAKE_MAX_SWELL, withLakeRandom } from './LakeWaterMaterial.js';
 import { createLakeShoreMaterial, createLakeShorePalette, sampleLakeShore } from './LakeShoreMaterials.js';
+import { buildLakeReeds } from './LakeReeds.js';
 
 export const LAKE_PARK = Object.freeze({ name: 'Parque del Lago', z0: 222, z1: 318,
   lakeX: 75, lakeZ: 262, radiusX: 50, radiusZ: 26, surfaceY: -.18, maxDepth: 6, bankWidth: 2 });
@@ -68,23 +69,32 @@ export function lakeWaterInfo(x, z, landHeightAt = flatPark) {
 
 function lakeGrid(landHeightAt, surface = false, shoreOptions = {}) {
   const { x0, x1, z0, z1, step } = LAKE_TERRAIN;
+  const { lakeX, lakeZ, radiusX, radiusZ, bankWidth } = LAKE_PARK;
   const columns = (x1 - x0) / step + 1, rows = (z1 - z0) / step + 1;
-  const positions = [], colors = [], uvs = [], depths = [], plazas = [], layers = [], indices = [];
-  const palette = createLakeShorePalette(shoreOptions), sample = { color: new THREE.Color() };
+  const positions = [], colors = [], uvs = [], depths = [], shoreMeters = [], plazas = [], layers = [], soil = [], indices = [];
+  const palette = surface ? null : createLakeShorePalette(shoreOptions);
+  const sample = surface ? null : { color: new THREE.Color(), soil: new THREE.Color() };
   for (let row = 0; row < rows; row++) for (let col = 0; col < columns; col++) {
     const x = x0 + col * step, z = z0 + row * step;
-    const y = terrainVertexHeight(x, z, landHeightAt), depth = Math.max(0, LAKE_PARK.surfaceY - y);
+    const y = terrainVertexHeight(x, z, landHeightAt), depth = LAKE_PARK.surfaceY - y;
     positions.push(x, surface ? LAKE_PARK.surfaceY : y, z);
     uvs.push(x / 8, z / 8);
     depths.push(depth);
-    const bankDistance = (lakeRadius(x, z) - 1) * LAKE_PARK.radiusZ;
-    const bank = THREE.MathUtils.smoothstep(bankDistance, 0, LAKE_PARK.bankWidth);
+    const radius = lakeRadius(x, z);
+    // Distancia al óvalo sobre su normal, útil para dar el mismo ancho a la orilla en ambos ejes.
+    const ellipseSlope = Math.hypot((x - lakeX) / radiusX ** 2, (z - lakeZ) / radiusZ ** 2);
+    const meters = (1 - radius * radius) / Math.max(2 * ellipseSlope, 1 / radiusX);
+    shoreMeters.push(meters);
+    if (surface) continue;
+    const bankDistance = (radius - 1) * radiusZ;
+    const bank = THREE.MathUtils.smoothstep(bankDistance, 0, bankWidth);
     const onPlaza = landHeightAt(x, z) >= .1 ? bank : 0;
     plazas.push(onPlaza);
-    sampleLakeShore({ x, z, depth, bankDistance,
+    sampleLakeShore({ x, z, depth: Math.max(0, depth), bankDistance, shoreDistance: -meters,
       edgeDistance: Math.min(x - x0, x1 - x, z - z0, z1 - z) }, palette, sample);
     colors.push(sample.color.r, sample.color.g, sample.color.b);
     layers.push(sample.grass, sample.gravel, sample.wet);
+    soil.push(sample.soil.r, sample.soil.g, sample.soil.b);
   }
   for (let row = 0; row < rows - 1; row++) for (let col = 0; col < columns - 1; col++) {
     const a = row * columns + col, b = a + 1, c = a + columns, d = c + 1;
@@ -94,17 +104,23 @@ function lakeGrid(landHeightAt, surface = false, shoreOptions = {}) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute('lakeDepth', new THREE.Float32BufferAttribute(depths, 1));
-  geometry.setAttribute('lakePlaza', new THREE.Float32BufferAttribute(plazas, 1));
-  if (!surface) geometry.setAttribute('lakeLayers', new THREE.Float32BufferAttribute(layers, 3));
+  geometry.setAttribute('lakeShoreMeters', new THREE.Float32BufferAttribute(shoreMeters, 1));
+  if (!surface) {
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('lakePlaza', new THREE.Float32BufferAttribute(plazas, 1));
+    geometry.setAttribute('lakeLayers', new THREE.Float32BufferAttribute(layers, 3));
+    geometry.setAttribute('lakeSoil', new THREE.Float32BufferAttribute(soil, 3));
+  }
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
-  geometry.boundingBox.min.y -= surface ? .035 : 0;
-  geometry.boundingBox.max.y += surface ? .035 : 0;
   geometry.computeBoundingSphere();
-  if (surface) geometry.boundingSphere.radius += .035;
+  if (surface) {
+    geometry.boundingBox.min.y -= LAKE_MAX_SWELL;
+    geometry.boundingBox.max.y += LAKE_MAX_SWELL;
+    geometry.boundingSphere.radius += LAKE_MAX_SWELL;
+  }
   return geometry;
 }
 
@@ -123,17 +139,36 @@ export function buildLakeWater(material = createLakeWaterMaterial(), landHeightA
   water.receiveShadow = true;
   water.userData.noMerge = true;
   water.userData.update = dt => material.userData.update?.(dt);
+  // El material lee la cúpula, la niebla y los faroles cercanos de la escena.
+  water.onBeforeRender = (renderer, scene) => material.userData.syncScene?.(scene, renderer);
+  // Los juncos cuelgan del agua, que ya queda fuera del agrupado estático; no son obstáculo.
+  const reeds = withLakeRandom(() => buildLakeReeds(LAKE_PARK, (x, z) => lakeTerrainHeight(x, z, landHeightAt), onLakeBridge));
+  water.userData.reeds = reeds;
+  water.add(reeds);
   return water;
 }
 
+// Las cinco áreas de descanso quedan a un lado del sendero y miran la cubeta.
+// Los centros se expresan en metros para compartir el mismo lugar con las bancas.
+export const LAKE_LOOKOUTS = Object.freeze([
+  { x: 18, z: 244 }, { x: 18, z: 280 },
+  { x: 118, z: 236 }, { x: 118, z: 288 }, { x: 138, z: 264 }
+]);
+
 /** Solo la ampliación; se conserva la posición de todas las calles del centro. */
 export function paintLakePark(map) {
-  const p = LAKE_PARK, b = LAKE_BRIDGE;
+  const p = LAKE_PARK;
   for (let z = 111; z < map.length - 1; z++) for (let x = 1; x < map[0].length - 1; x++) {
     const wx = x * 2, wz = z * 2;
     const radius = Math.hypot((wx - p.lakeX) / p.radiusX, (wz - p.lakeZ) / p.radiusZ);
-    const promenade = Math.abs(radius - 1.14) < .045 || z === 113 || z === 155 || x === 10 || x === 112 ||
-      (x === 86 && (wz < 234 || wz > 290));
+    // Los paseos norte y sur llegan al anillo por el lado oriental del lago;
+    // desde Carrera 5 se llega al mirador sin dar la vuelta por el perímetro.
+    const ring = Math.abs(radius - 1.14) < .052;
+    const eastApproach = wz === p.lakeZ && wx >= p.lakeX + p.radiusX;
+    const connectors = wx === 116 && (wz >= 226 && wz <= 244 || wz >= 282 && wz <= 310);
+    const overlook = LAKE_LOOKOUTS.some(seat => Math.abs(wx - seat.x) <= 2 && Math.abs(wz - seat.z) <= 2);
+    const promenade = ring || eastApproach || connectors || overlook ||
+      z === 113 || z === 155 || x === 10 || x === 86 || x === 112;
     map[z][x] = radius < 1 ? 'water' : promenade ? 'plaza' : 'grass';
     if (onLakeBridge(wx,wz)) map[z][x] = 'busway';
   }

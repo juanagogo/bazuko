@@ -167,7 +167,7 @@ function instance(gltf, library, options = {}) {
 // ya no parece rascarse sino vibrar.
 const GESTURE_RATE_LIMIT = 1.1; // vueltas por segundo que puede pedir el catálogo
 const GESTURE_HZ_LIMIT = 1.5; // pico a pico más corto que se llega a ver, con la variación incluida
-const WITH_MOTION = ['celular', 'frotarse', 'fumar-quieto', 'hablar', 'rascarse'];
+const WITH_MOTION = ['celular', 'frotarse', 'fumar-quieto', 'hablar', 'rascarse', 'sin-aire'];
 
 /** Veces por segundo que el hueso que más se mueve vuelve a su extremo, a lo largo de un minuto. */
 function measureGesture({ gltf, library }, name, { fps = 60, seconds = 60, seed = 3 } = {}) {

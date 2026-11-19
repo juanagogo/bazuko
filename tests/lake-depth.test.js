@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { LAKE_PARK, buildLakeTerrain, buildLakeWater, lakeWaterInfo, lakeTerrainHeight } from '../src/world/bogota/LakePark.js';
+import { LAKE_PARK, LAKE_LOOKOUTS, buildLakeTerrain, buildLakeWater, lakeWaterInfo, lakeTerrainHeight } from '../src/world/bogota/LakePark.js';
 import { Bogota } from '../src/world/districts/Bogota.js';
 import { createLakeWaterMaterial } from '../src/world/bogota/LakeWaterMaterial.js';
 import { freezeStaticTransforms } from '../src/world/bogota/StaticGeometry.js';
@@ -28,6 +28,13 @@ test('la orilla es vadeable y el centro tiene seis metros de profundidad continu
 
 test('las consultas de profundidad coinciden con los triángulos reales del lecho y banco', () => {
   const terrain = buildLakeTerrain();
+  const waterSurface = buildLakeWater();
+  const ground = terrain.geometry.getAttribute('position');
+  const waterDepth = waterSurface.geometry.getAttribute('lakeDepth');
+  for (let i = 0; i < ground.count; i++) {
+    assert.ok(Math.abs(waterDepth.getX(i) - (LAKE_PARK.surfaceY - ground.getY(i))) < 1e-6);
+  }
+  assert.ok(waterDepth.array.some(depth => depth < 0), 'la interpolación conserva la cota del banco seco');
   terrain.updateMatrixWorld(true);
   const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
   for (const [x, z] of [[75, 262], [122.5, 262], [25.25, 263.8], [75.3, 236.1], [103.6, 281.2], [126.3, 262]]) {
@@ -40,6 +47,7 @@ test('las consultas de profundidad coinciden con los triángulos reales del lech
   }
   assert.ok(terrain.geometry.boundingBox.min.y < -6);
   terrain.geometry.dispose(); terrain.material.dispose();
+  waterSurface.traverse(mesh => { mesh.geometry.dispose(); mesh.material.dispose(); });
 });
 
 test('el jugador consulta el lecho bajo el puente y conserva el tablero al caminar encima', () => {
@@ -93,9 +101,10 @@ test('las ondas y la profundidad conservan el shader PBR de Three y sus salidas 
   assert.ok(shader.vertexShader.includes('attribute float lakeDepth;'));
   assert.ok(shader.vertexShader.includes('transformed.y +='));
   assert.ok(shader.fragmentShader.includes('lakeDepthBlend'));
-  for (const chunk of ['<lights_fragment_begin>', '<tonemapping_fragment>', '<colorspace_fragment>', '<fog_fragment>']) {
+  for (const chunk of ['<lights_physical_fragment>', '<tonemapping_fragment>', '<colorspace_fragment>', '<fog_fragment>']) {
     assert.ok(shader.fragmentShader.includes(chunk), `falta ${chunk}`);
   }
+  assert.ok(shader.fragmentShader.includes('directLight.color *= sunFieldLit'), 'el reflejo solar responde a la sombra del puente');
   assert.equal(LAKE_PARK.surfaceY, -.18);
   material.dispose();
 });
@@ -136,4 +145,26 @@ test('los pilares del lago llegan al lecho sin mover su techo, huella ni rampas'
     root.traverse(mesh => { mesh.geometry?.dispose(); if (mesh.material) materials.add(mesh.material); });
     for (const material of materials) material.dispose();
   }
+});
+
+test('desde el andén de la Carrera 5 se llega por adoquín hasta las bancas y el anillo oriental del lago', () => {
+  const city = new Bogota(), map = city._layout();
+  const entrance = [125, LAKE_PARK.lakeZ / 2];
+  assert.equal(map[entrance[1]][entrance[0] + 1], 'sidewalk');
+  assert.equal(map[entrance[1]][entrance[0]], 'plaza');
+  const queue = [entrance], visited = new Set([entrance.join(',')]);
+  for (let i = 0; i < queue.length; i++) {
+    const [x, z] = queue[i];
+    for (const [nx, nz] of [[x - 1, z], [x + 1, z], [x, z - 1], [x, z + 1]]) {
+      const key = nx + ',' + nz;
+      if (map[nz]?.[nx] === 'plaza' && !visited.has(key)) {
+        queue.push([nx, nz]);
+        visited.add(key);
+      }
+    }
+  }
+  for (const { x, z } of LAKE_LOOKOUTS.filter(seat => seat.x > LAKE_PARK.lakeX)) {
+    assert.ok(visited.has((x / 2) + ',' + (z / 2)), 'la banca está en un ensanche conectado al paseo');
+  }
+  assert.ok(visited.has('58,121') && visited.has('58,141'), 'el paseo alcanza ambos arcos de la ribera');
 });

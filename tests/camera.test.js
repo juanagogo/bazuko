@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { CameraRig } from '../src/core/Camera.js';
 import { Player } from '../src/entities/Player.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
+import { buildMarket } from '../src/world/bogota/EastLandmarks.js';
 
 beforeEach(() => {
   globalThis.window = { innerWidth: 1280, innerHeight: 720, addEventListener() {} };
@@ -12,6 +13,68 @@ beforeEach(() => {
 });
 const rig = () => new CameraRig(new THREE.Scene(), { addEventListener() {} });
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-6, `${a} != ${b}`);
+
+test('el mercado despeja la cámara al girar por el pasillo y sus flancos', () => {
+  const market = buildMarket({ detail: new THREE.MeshStandardMaterial({ side: THREE.DoubleSide }) });
+  market.group.updateMatrixWorld(true);
+  const collisions = new CollisionSystem();
+  for (const { x, z, w, d, h } of market.colliders) {
+    const table = new THREE.Object3D();
+    table.position.set(x, .12, z);
+    collisions.add(table, new THREE.Vector3(w, h, d));
+  }
+  for (const { ceiling, occluder } of market.cameraCovers) {
+    collisions.addCameraCeiling(ceiling);
+    collisions.addCameraOccluder(occluder);
+  }
+  for (const { box, approach, minimumArm } of market.cameraDisplays) collisions.addCameraOccluder(box, approach, minimumArm);
+  const player = new THREE.Vector3();
+  const camera = rig(), sight = new THREE.Raycaster(), direction = new THREE.Vector3();
+  const intersectsMarket = () => {
+    sight.set(camera._look, direction.copy(camera.camera.position).sub(camera._look).normalize());
+    sight.far = camera._armDistance;
+    return sight.intersectObject(market.group, true).some(hit => hit.point.y > 1.65);
+  };
+  player.set(331.8, .12, 171.4);
+  for (const heading of [0, Math.PI]) {
+    camera._snap = true;
+    let previous;
+    for (let i = 0; i <= 120; i++) {
+      camera.yaw = heading - .6 + i * .01;
+      camera.follow(player, 1 / 60, collisions);
+      assert.ok(camera._armDistance > 2 && !camera.insideBody);
+      if (previous !== undefined) assert.ok(Math.abs(camera._armDistance - previous) < .18);
+      previous = camera._armDistance;
+      assert.ok(!intersectsMarket());
+    }
+  }
+  for (const [x, z] of [[331.8, 173.8], [337.13, 173.9], [329.2, 168.38], [332, 174.1]]) {
+    player.set(x, .12, z);
+    camera._snap = true;
+    for (let i = 0; i < 315; i++) {
+      camera.yaw = i * .02;
+      camera.follow(player, 1 / 60, collisions);
+      assert.ok(camera._armDistance > .75 && !camera.insideBody);
+      assert.ok(!intersectsMarket());
+    }
+  }
+  player.set(331.8, .12, 173.8);
+  camera.yaw = .0905;
+  camera._snap = true;
+  camera.follow(player, 1 / 60, collisions);
+  const beforeFastTurn = camera._armDistance;
+  camera.yaw = .187125;
+  camera.follow(player, .0773, collisions);
+  assert.ok(beforeFastTurn - camera._armDistance < .6 && !intersectsMarket());
+  camera.yaw = -Math.PI / 2;
+  player.set(318, .12, 171);
+  for (let i = 0; i < 120; i++) camera.follow(player, 1 / 60, collisions);
+  near(camera._armDistance, 5.5);
+  assert.equal(collisions.colliders.length, 6);
+  collisions.clear();
+  assert.equal(collisions.cameraOccluders.size, 0);
+  assert.equal(collisions.cameraCeilings.size, 0);
+});
 
 test('el ragdoll de un atropello respeta paredes y recupera el control al terminar', () => {
   const player = new Player(new THREE.Scene(), { axis: { x: 0, z: 1 }, isRunning: false });

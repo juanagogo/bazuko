@@ -44,12 +44,12 @@ function director({ random = () => .5 } = {}) {
 const callar = cargados => cargados.forEach(h => h.stop());
 
 test('cada frase tiene su mp3 mono en public/audio/voces y no hay mp3 sin frase', () => {
-  assert.equal(FRASES.length, 35);
+  assert.equal(frasesDe('ambiente').length, 35);
   assert.equal(new Set(FRASES.map(frase => frase.id)).size, FRASES.length);
   const dir = new URL('../public/audio/voces/', import.meta.url);
   assert.deepEqual(readdirSync(dir).sort(), FRASES.map(frase => `${frase.id}.mp3`).sort());
   for (const frase of FRASES) {
-    assert.equal(frase.situacion, 'ambiente');
+    assert.match(frase.situacion, /^(ambiente|testigo_(llama|graba|cuelga|robo|pelea)|pelea|persecucion)$/);
     assert.equal(frase.audio, `/audio/voces/${frase.id}.mp3`);
     assert.ok(REPARTO[frase.voz], `${frase.id}: voz del reparto`);
     assert.equal(frase.gender, REPARTO[frase.voz].sexo);

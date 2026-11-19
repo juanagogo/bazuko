@@ -60,6 +60,9 @@ function joint(root, name) {
   return found;
 }
 
+
+
+
 test('cambiar de modelo a mitad de levantarse no deja al realista a medio acostar cuando vuelve', async () => {
   const input = { axis: { x: 0, z: 0 }, isRunning: false, consumePress: () => false, isDown: () => false };
   const player = new Player(new THREE.Scene(), input, new StatsSystem(), null);
