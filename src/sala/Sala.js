@@ -14,6 +14,30 @@ import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { AnimationPreview } from './AnimationPreview.js';
 
+const alturaDelPiso = () => 0;
+const GIROS_DE_INSPECCION = [0, -.35, .35, -.7, .7, -1.05, 1.05, -1.4, 1.4, -1.75, 1.75];
+
+// Al pedir un encuadre, prueba primero el frente y después el perfil más próximo que deje ver al jugador.
+function rumboDeInspeccion(player, npcs, distancia) {
+  const frontal = player.root.rotation.y + .28;
+  let mejorRumbo = frontal, mayorEspacio = -1;
+  for (const giro of GIROS_DE_INSPECCION) {
+    const rumbo = frontal + giro, x = Math.sin(rumbo), z = Math.cos(rumbo);
+    let espacio = Infinity;
+    for (const npc of npcs) {
+      if (npc._disposed || npc.deathSettled) continue;
+      const dx = npc.position.x - player.position.x, dz = npc.position.z - player.position.z;
+      const adelante = dx * x + dz * z;
+      if (adelante <= 0 || adelante > distancia + .65) continue;
+      const t = Math.min(adelante, distancia);
+      espacio = Math.min(espacio, Math.hypot(dx - t * x, dz - t * z));
+    }
+    if (espacio >= .65) return rumbo;
+    if (espacio > mayorEspacio) { mejorRumbo = rumbo; mayorEspacio = espacio; }
+  }
+  return mejorRumbo;
+}
+
 // Necesidades llenas; el resto de sistemas que el jugador consulta no existen en la sala.
 export function createStats() {
   return {
@@ -41,7 +65,8 @@ export class Sala {
     this.stats = createStats();
     this.timeScale = 1;
     this.hour = 13;
-    this.npcs = [];
+    this.npcs = []; // objetivos en la calle; cada prueba actualiza a sus propios actores
+    this.world = { active: { npcs: this.npcs, getMovementGroundHeight: alturaDelPiso } };
     this.updaters = new Set(); // funciones (dt) que agregan las pruebas
     this.beforeRender = new Set();
     this.afterRender = new Set();
@@ -103,9 +128,9 @@ export class Sala {
     const camera = this.cameraRig;
     camera.releaseControls();
     camera.mode = 'third-person';
-    camera.yaw = this.player.root.rotation.y + .28;
     camera.pitch = detail ? .06 : .12;
     camera.distance = detail ? 2.5 : 3.2;
+    camera.yaw = rumboDeInspeccion(this.player, this.npcs, camera.distance * Math.cos(camera.pitch));
     // En vertical conserva espacio horizontal para toda la cabeza.
     camera.baseFov = detail ? THREE.MathUtils.radToDeg(2 * Math.atan(
       Math.tan(THREE.MathUtils.degToRad(18) / 2) / Math.min(1, camera.camera.aspect)
@@ -135,6 +160,15 @@ export class Sala {
     requestAnimationFrame(this._loop);
   }
 
+  updateSimulation(dt) {
+    if (!(dt > 0)) return;
+    this.player.polvoGolpes?.update(dt);
+    this.sangre?.update(dt);
+    if (this.animationPreview.name) this.animationPreview.update(dt);
+    else this.player.update(dt, this.cameraRig.camera, null, alturaDelPiso, this.npcs);
+    for (const update of this.updaters) update(dt);
+  }
+
   _loop = () => {
     requestAnimationFrame(this._loop);
     const now = performance.now();
@@ -146,12 +180,7 @@ export class Sala {
     this.cameraRig.updateControls(real, this.input);
     this.cameraRig.prepareMovement();
     // Las caladas, el combo y los efectos corren con `timeScale`; con x30 un cigarrillo dura 20 s.
-    if (dt > 0) {
-      if (this.animationPreview.name) this.animationPreview.update(dt);
-      else this.player.update(dt, this.cameraRig.camera, null, () => 0, this.npcs);
-      for (const npc of this.npcs) npc.update(dt, { player: this.player });
-      for (const update of this.updaters) update(dt);
-    }
+    this.updateSimulation(dt);
     this.cameraRig.follow(this.player.position, real, null, this.player.speed, this.input.isRunning, this.player.movement);
     this.psychosis.update(dt, this.cameraRig);
     this.effects.update(dt);

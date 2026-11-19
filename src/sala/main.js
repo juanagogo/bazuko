@@ -3,6 +3,7 @@
 import { Sala } from './Sala.js';
 import { PRUEBAS } from './pruebas.js';
 import { streetWetness } from '../character/streetMaterials.js';
+import { NIVELES_SANGRE } from '../systems/SangreGolpes.js';
 
 const $ = (id) => document.getElementById(id);
 const setText = (id, value) => { if ($(id).textContent !== value) $(id).textContent = value; };
@@ -142,11 +143,28 @@ async function boot() {
   const row = document.createElement('div');
   row.className = 'sala-fila';
   for (const a of montada.acciones ?? []) {
-    const b = button(a.texto, () => { a.hacer(); updateAnimationStatus(); });
+    const b = button(a.texto, async () => { await a.hacer(); updateAnimationStatus(); });
     if (prueba.id === 'personaje' && CLIP_BY_LABEL[a.texto]) b.dataset.clip = CLIP_BY_LABEL[a.texto];
     actionButtons.push(b); row.append(b);
   }
   acciones.append(row);
+  if (sala.sangre) {
+    const grupo = document.createElement('div');
+    const titulo = document.createElement('h2');
+    titulo.id = 'sala-sangre';
+    titulo.textContent = 'Sangre';
+    grupo.setAttribute('role', 'group');
+    grupo.setAttribute('aria-labelledby', titulo.id);
+    grupo.append(titulo);
+    if (params.has('sangre')) sala.sangre.setNivel(params.get('sangre'), false);
+    choice(grupo, NIVELES_SANGRE.map(({ id, label }) => [id, label]), sala.sangre.nivel, nivel => {
+      sala.sangre.setNivel(nivel, false);
+      const url = new URL(location.href);
+      url.searchParams.set('sangre', nivel);
+      history.replaceState(null, '', url);
+    });
+    acciones.append(grupo);
+  }
 
   const generales = $('sala-generales');
   choice(generales, [['realista', 'Realista'], ['procedural', 'Liviano']], modelo, async kind => {

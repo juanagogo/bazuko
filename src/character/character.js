@@ -389,11 +389,15 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     weaponId = id || null;
     weapon = createWeapon(weaponId);
     if (!weapon) return;
-    // La tabla del arma casera atravesaría el piso si colgara en línea con el antebrazo: va inclinada hacia adelante.
-    const long = weaponId === 'arma';
     weapon.object.position.set(0, -.2, 0);
-    weapon.object.rotation.set(long ? -.96 : 0, 0, Math.PI);
-    weapon.object.scale.setScalar(long ? 1 : 1.25);
+    if (weaponId === 'arma' || weaponId === 'cuchillo') {
+      // Esta mano esférica carece de muñeca. El objeto sale hacia delante y por fuera del pantalón.
+      weapon.object.rotation.set(-1.30, -.46, Math.PI, 'YXZ');
+      weapon.object.rotateY(1.44); // presenta la cara ancha al mirar desde el hombro o de costado
+    } else {
+      weapon.object.rotation.z = Math.PI;
+    }
+    weapon.object.scale.setScalar(weaponId === 'arma' ? 1 : 1.25);
     arms[1].elbow.add(weapon.object);
   }
 
@@ -429,7 +433,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     basucoProps = { pipe, lighter };
   }
 
-  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
+  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, combatGuard = false, troncoDirigido = false, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
     if (disposed) return;
     actionPose.restore();
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -658,7 +662,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, step: stepFoot });
+    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, combatGuard, troncoDirigido, step: stepFoot });
 
     // parpadeo
     blink -= dt;
@@ -674,6 +678,21 @@ export function createCharacter(initial = DEFAULT_LOOK) {
 
   return {
     group: root,
+    anclaGolpe(lado, arma) {
+      if (arma === weaponId && weapon?.object.visible) return weapon.object;
+      return hands[lado === 'L' ? 'left' : 'right'];
+    },
+    sampleSoleContacts(contacts) { actionPose.sampleSoleContacts(contacts, look.zapatos); },
+    fitBicycle(bike) {
+      bicyclePose.fit(bike, look.zapatos);
+      if (weapon) weapon.object.visible = false;
+      if (cigarette) cigarette.object.visible = false;
+      if (basucoProps) basucoProps.pipe.object.visible = basucoProps.lighter.object.visible = false;
+    },
+    fitCart(cart) {
+      bicyclePose.fitCart(cart);
+      if (weapon) weapon.object.visible = false;
+    },
     ragdollRig,
     get look() { return look; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */

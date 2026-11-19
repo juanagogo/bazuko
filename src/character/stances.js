@@ -691,7 +691,9 @@ export function bakeStances(scene, standing = null) {
   rig.reset();
   const holds = bakeHolds(rig, m);
   rig.reset();
-  return { stances, knockout, style: bakeStyle(rig), holds };
+  const fists = { L: rig.fist('left'), R: rig.fist('right') };
+  rig.reset();
+  return { stances, knockout, style: bakeStyle(rig), holds, fists };
 }
 
 /**

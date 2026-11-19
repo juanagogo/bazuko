@@ -40,11 +40,7 @@ const emit = (type, detail) => {
   if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new CustomEvent(type, { detail }));
 };
 
-/** Por debajo de esta salud un golpe tumba; después hay un respiro, o una golpiza sería una sola caída sin fin. */
-export const GOLPE_TUMBA = { salud: 35, respiroS: 8, velocidad: 3 };
-
-/** ¿Este golpe deja tirado? */
-export const golpeTumba = (salud, respiro = 0) => salud > 0 && salud <= GOLPE_TUMBA.salud && !(respiro > 0);
+const HIT_RECOVERY = .18;
 
 export class Player {
   constructor(scene, input, stats=null, audio=null, { animaciones = 'default' } = {}) {
@@ -96,9 +92,9 @@ export class Player {
     this._before = new THREE.Vector3();
     this._impactVelocity = new THREE.Vector3();
     this._impactTime = 0;
-    this._impactHeavy = false; // atropello o golpe que tumba: el cuerpo se va de lado
+    this._impactHeavy = false; // respaldo de la caída por atropello
     this.hitLean = new HitLean();
-    this._respiroTumbo = 0;
+    this._punchBuffered = false;
     this.tiradoPor = null;
 
     // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
@@ -320,6 +316,7 @@ export class Player {
   /** Equipa un arma de la tabla (o puños); false si no existe. */
   equipWeapon(id = DEFAULT_WEAPON) {
     if (!WEAPONS[id]) return false;
+    this._punchBuffered = false;
     this.equippedWeapon = id;
     this.melee.cancel();
     if (this.action === 'golpear') { this.action = null; this.actionTimer = 0; }
@@ -464,7 +461,7 @@ export class Player {
 
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
-    if (action !== 'golpear') this.melee?.cancel();
+    if (action !== 'golpear') { this._punchBuffered = false; this.melee?.cancel(); }
     this.action = action;
     this.actionTimer = duration;
     this.actionDuration = duration;
@@ -473,6 +470,7 @@ export class Player {
 
   /** Dormir congela `update`: la inercia, el empujón de un golpe y el aterrizaje de ese instante volverían al despertar, resbalando y de pie de golpe. */
   settleForSleep() {
+    this._punchBuffered = false;
     this.velocity?.set(0, 0, 0);
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
@@ -521,8 +519,22 @@ export class Player {
     if (this.ridingBike || this.isSwimming || this.isStunned || !this.isGrounded || this.hasCart || this.sorting
       || (this.basuco && !this.basuco.stowed) || (this.action && this.action !== 'golpear')) return false;
     const started = this.melee.active ? this.melee.queue(this) : this.melee.start(this);
-    if (started) this.playAction('golpear', this.melee.duration);
+    if (started && !this.melee.enPausaDeImpacto) this.playAction('golpear', this.melee.duration);
     return started;
+  }
+
+  _leerGolpe() {
+    const anterior = this.attack;
+    const pressed = this.input?.consumePress?.('KeyG') || this.input?.consumePress?.('Mouse0');
+    if (this.isKnockedDown || this.ridingBike || this.atWheel || this.isSwimming || !this.isGrounded || this.stats?.salud <= 0) {
+      this._punchBuffered = false;
+    } else if (pressed && this._impactTime > 0) {
+      this._punchBuffered = true;
+    } else if (this._punchBuffered && !this.isStunned && this.melee.cooldownRemaining <= 1e-8) {
+      this._punchBuffered = false;
+      this.punch();
+    } else if (pressed) this.punch();
+    return !anterior && !!this.attack;
   }
 
   playBeg() {
@@ -530,6 +542,7 @@ export class Player {
   }
 
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
+    this._punchBuffered = false;
     if (this.ridingBike) {
       this.ridingBike.dismount();
     }
@@ -544,44 +557,29 @@ export class Player {
     this.root.rotation.z = .85;
   }
 
-  /**
-   * Golpe de un agresor: empujón y tambaleo breves. Con la salud ya baja, el golpe deja tirado de verdad,
-   * y se queda en el piso hasta poder levantarse (ver golpeTumba).
-   */
-  receiveHit(direction, strength = 2, { salud } = {}) {
+  /** La pelea interrumpe el ataque y ladea el tronco; la dirección elegida sigue respondiendo. */
+  receiveHit(direction, strength = 2, { salud = this.stats?.salud } = {}) {
     if (this.ragdoll?.active) return;
     this.melee.cancel();
+    if (salud <= 0) this._punchBuffered = false;
     // Al volante (CarjackSystem) no lo tumban ni lo empujan: queda aturdido un momento y el carro sigue solo.
     if (this.atWheel) { this._impactTime = Math.max(this._impactTime, .3); return; }
     this._impactVelocity.copy(direction).setY(0);
     if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
     this._impactVelocity.normalize().multiplyScalar(strength);
-    if (golpeTumba(salud, this._respiroTumbo)) {
-      if (this.ridingBike) {
-        this.ridingBike.dismount();
-      }
-      this.tiradoPor = 'golpe';
-      this._respiroTumbo = GOLPE_TUMBA.respiroS;
-      this.hitLean.remove(this.character.group);
-      this.hitLean.clear();
-      if (this.ragdoll?.start(this._impactVelocity.clone(), GOLPE_TUMBA.velocidad, this._lastCollisions)) return;
-      this._impactTime = 1;
-      this._impactHeavy = true;
-      this.root.rotation.z = .85;
-      return;
-    }
-    // Golpe que no tumba: el tronco cede hacia donde lo empujan (ver HitLean).
     if (!this._impactHeavy) this.hitLean.kick(this._impactVelocity, this.root.rotation.y, strength / 1.6);
-    this._impactTime = Math.max(this._impactTime, .3);
+    this._impactTime = Math.max(this._impactTime, HIT_RECOVERY);
   }
 
   /** Cuánto va la cadera visible por debajo de la raíz (el empuje del salto): la sombra de contacto sigue al cuerpo. */
   get bodyDrop() { return this.character?.jumpHipDrop ?? 0; }
 
   get isStunned() { return !!this.ragdoll?.active || this._impactTime > 0; }
+  get isKnockedDown() { return !!this.ragdoll?.active || (this._impactHeavy && this._impactTime > 0); }
   get isRagdollActive() { return !!this.ragdoll?.active; }
 
   clearVehicleImpact() {
+    this._punchBuffered = false;
     this.melee?.cancel();
     this.velocity?.set(0, 0, 0);
     this.ragdoll.clear();
@@ -594,6 +592,7 @@ export class Player {
   }
 
   resetGrounding() {
+    this._punchBuffered = false;
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.groundSurface = null;
@@ -617,10 +616,13 @@ export class Player {
   }
 
   update(dt, camera, collisions, groundHeight = null, npcs = [], waterInfo = null) {
+    if (this.melee.pasoDelCuerpo(dt, this) === 0 && this.melee.enPausaDeImpacto) {
+      this._leerGolpe();
+      return;
+    }
     this.time += dt;
     this.hitLean.remove(this.character.group);
     this._lastCollisions = collisions;
-    if (this._respiroTumbo > 0) this._respiroTumbo -= dt;
     if (this.ragdoll?.active) {
       // Tumbado no se puede saltar ni sigue el aterrizaje: no queda guardado nada que salga al levantarse.
       this._jumpBuffer = this._coyote = 0;
@@ -660,12 +662,7 @@ export class Player {
       this.audio?.playJump?.();
     }
 
-    const attackBeforeInput = this.attack;
-    const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.ridingBike && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
-      this.punch();
-    }
-    const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
+    const beganAttackThisFrame = this._leerGolpe();
 
     // Desmontar de la bicicleta con E
     if (this.ridingBike && typeof this.input?.consumePress === 'function' && this.input.consumePress('KeyE')) {
@@ -675,7 +672,7 @@ export class Player {
     // con la pipa en la boca se queda quieto
     const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
+    const moving = !this._impactHeavy && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
     let speed = running ? this.speedRun : this.speedWalk;
     if (this.ridingBike) {
@@ -741,7 +738,7 @@ export class Player {
       this._impactTime = Math.max(0, this._impactTime - dt);
       if (this._impactTime === 0) this._impactHeavy = false;
     }
-    // Solo el golpe que tumba lo acuesta de lado; el leve lo inclina hitLean.
+    // Al fallar la caída articulada de un atropello se conserva el ladeo del cuerpo.
     this.root.rotation.z = this._impactHeavy ? .85 * this._impactTime : 0;
 
     const before = this._before.copy(this.position);
@@ -928,12 +925,18 @@ export class Player {
     this._updateGlance(dt);
     if (this.ridingBike) this.ridingBike.update(dt, this, this.audio);
     // Una pulsación nueva muestra al menos un frame de anticipación, también a 10 FPS.
+    const ataque = this.attack;
     const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, npcs);
     if (hit) {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
-      if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
-      emit('street-fight', { attacker: this, hits: (hit.hits ?? [hit]).map((h) => h.target).filter(Boolean), weapon: this.equippedWeapon ?? null });
-      emit('camera-shake', { amount: .24 }); // ~0,25°, corto
+      const results = hit.hits ?? [hit];
+      if (results.some(result => !result.wasAggressor) && typeof this.game?.steal?.buscado === 'number') {
+        this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
+      }
+      emit('street-fight', { attacker: this, hits: results.map(result => result.target).filter(Boolean), results,
+        weapon: ataque?.weapon ?? this.equippedWeapon });
+      const pausa = ataque?.timing.pausaImpacto ?? WEAPONS.punos.pausaImpacto;
+      emit('camera-shake', { amount: .24 + 2 * (pausa - WEAPONS.punos.pausaImpacto) });
     }
     if (this.melee.active) {
       this.action = 'golpear';
@@ -960,21 +963,29 @@ export class Player {
     // Aturdido (un golpe, un carro) la pose suelta los pies clavados del aterrizaje.
     m.stunned = stunned;
 
-    const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
+    const riding = !!this.ridingBike;
+    const reacting = stunned && !this._impactHeavy && this.hitLean.active && this.isGrounded && !this.isSwimming && !riding && !this.atWheel;
+    const stance = this._updateBodyLanguage(dt, riding || moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
+    // El impacto se dibuja incluso cuando un cuadro largo alcanza a entrar en la recuperación.
+    const ataqueVisible = hit && ataque ? { ...ataque, phase: 'active', t: 0, progress: 0 } : this.attack;
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
     this.character.update(dt, {
       stance,
       style: this.bodyStyle,
-      speed: stunned ? 0 : this.speed / this.modelScale,
-      running,
-      action: stunned ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
-      actionProgress: this.actionProgress,
+      speed: (stunned && !moving) || riding ? 0 : this.speed / this.modelScale,
+      running: running && !riding,
+      action: reacting ? 'recibirGolpe' : stunned || riding || this.isSwimming ? null
+        : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
+      actionProgress: reacting ? 1 - Math.min(1, this._impactTime / HIT_RECOVERY) : this.actionProgress,
+      troncoDirigido: reacting,
       movement: this.movement,
-      attack: this.attack,
-      smoke: this._holdingCigarette && !this.attack ? this.smoking : null,
-      basuco: this.basuco && !this.basuco.stowed ? this.basuco.t : null,
+      attack: riding ? null : ataqueVisible,
+      combatGuard: !riding && !stunned && !this.isSwimming && this.isGrounded && !this.hasCart && !this.sorting
+        && !this.action && this.comboTimer > 0 && this.equippedWeapon === DEFAULT_WEAPON,
+      smoke: !riding && this._holdingCigarette && !this.attack ? this.smoking : null,
+      basuco: !riding && this.basuco && !this.basuco.stowed ? this.basuco.t : null,
       look: this._glance,
       t: this.time,
       load: this.load,
@@ -986,6 +997,7 @@ export class Player {
   }
 
   dispose() {
+    this.melee.cancel();
     this.ragdoll.clear();
     this._smoke?.dispose();
     this._realistic?.dispose?.();

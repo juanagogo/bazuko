@@ -15,9 +15,11 @@ export const SQUAD = {
   strikeTime: .16,
   recover: .3,
   cooldown: .75,
+  groupInterval: 1.9,   // los dos persiguen; dejan ver el cachazo de cada compañero antes de empezar el suyo
   damage: [20, 30],     // dos matones juntos tumban a cualquiera en pocos golpes
   giveUpTime: 22,
   giveUpDistance: 32,
+  returnTimeout: 18,    // un sobreviviente bloqueado se rinde y la camioneta puede irse
   shoutEvery: [2.6, 4.2]
 };
 
@@ -41,14 +43,14 @@ export const THUG_INSULTS = [
   '¡Usted aquí sobra, pirobo!'
 ];
 
-const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const pick = (list, random) => list[Math.floor(random() * list.length)];
 const _dir = new THREE.Vector3();
 
 /** Hombre de negro: buzo, botas y pasamontañas; el jefe además lleva gorra */
-export function squadLook(role) {
+export function squadLook(role, random = Math.random) {
   return {
     ...DEFAULT_LOOK,
-    piel: 1 + Math.floor(Math.random() * 4),
+    piel: 1 + Math.floor(random() * 4),
     desgaste: 0,
     uniforme: '#161618',
     accesorios: role === 'jefe' ? ['pasamontanas', 'gorra'] : ['pasamontanas'],
@@ -61,12 +63,14 @@ export class SquadMember extends Npc {
    * @param {THREE.Scene} scene
    * @param {{ role?: 'jefe' | 'maton', isWalkable?: (x:number, z:number) => boolean, groundHeight?: (x:number, z:number) => number }} opts
    */
-  constructor(scene, { role = 'maton', ...opts } = {}) {
-    super(scene, new THREE.Vector3(0, -50, 0), { ...opts, speed: SQUAD.chaseSpeed, look: squadLook(role) });
+  constructor(scene, { role = 'maton', stableId = null, random = Math.random, ...opts } = {}) {
+    super(scene, new THREE.Vector3(0, -50, 0), { ...opts, speed: SQUAD.chaseSpeed, look: squadLook(role, random) });
+    this.stableId = stableId;
+    this.random = random;
     this.collisions = opts.collisions ?? null;
     this.getWaterInfo = opts.getWaterInfo ?? null;
     this.role = role;
-    this.state = 'idle';     // idle | order (jefe) | chase | windup | strike | recover | return
+    this.state = 'idle';     // idle | order | chase | windup | strike | recover | return | surrendered | dead
     this.timer = 0;
     this.stateTimer = 0;
     this.attackTimer = 0;
@@ -77,31 +81,39 @@ export class SquadMember extends Npc {
     this._lastSpokenTime = Infinity; // no charla de peatón: solo grita lo suyo
   }
 
-  get active() { return this.state !== 'idle'; }
+  get active() { return !this.isDead && this.state !== 'idle' && this.state !== 'surrendered'; }
   get isLeader() { return this.role === 'jefe'; }
+  get isAggressor() { return this.state !== 'idle'; }
+  get isAttacking() { return this.active && this.state !== 'return'; }
+  get canReceiveMeleeHit() { return this.isAttacking; }
 
   /** Cada modelo (lejano o cercano) lleva la pistola en la mano derecha */
   _show(char) {
-    char.setWeapon?.('pistola');
+    char.setWeapon?.(this.state === 'surrendered' ? null : 'pistola');
     super._show(char);
   }
 
   /** Se baja por `door` (mundo) mirando hacia `face` */
   exitCar(door, face) {
+    if (this.isDead) return;
     this.door.copy(door);
     this.position.copy(door);
     this.root.position.copy(door);
     this.root.rotation.set(0, Math.atan2(face.x - door.x, face.z - door.z), 0);
     this.root.visible = true;
     this.state = this.isLeader ? 'order' : 'chase';
+    this.character?.setWeapon?.('pistola');
     this.timer = 0;
     this.attackTimer = .5;
-    this.shoutTimer = this.isLeader ? .4 : 1.2 + Math.random() * 1.5;
+    this.shoutTimer = this.isLeader ? .4 : 1.2 + this.random() * 1.5;
+    this.staggerTimer = 0;
     this.poseParams = {};
   }
 
   /** Vuelve a subir: desaparece de la calle. */
   enterCar() {
+    if (this.isDead) return;
+    this.limpiarImpacto();
     this.state = 'idle';
     this.moving = false;
     this.poseParams = {};
@@ -112,15 +124,30 @@ export class SquadMember extends Npc {
     this._bubbleTimer = 0;
   }
 
-  /** Ni huye, ni suelta plata, ni queda tendido: aguanta el golpe y sigue. */
-  takeHit({ damage = 10, attacker = null } = {}) {
-    if (!this.active) return false;
+  /** Cada contacto válido del combate conserva su daño y devuelve cero de botín. */
+  takeHit({ damage = 10, attacker = null, dir = null, knockback = 0, weapon = 'punos', attackId = null, id = null } = {}) {
+    if (!this.isAttacking || this._disposed || !Number.isFinite(damage) || damage <= 0) return false;
     if (attacker?.position && !canReachCombatTarget({ from: attacker.position, to: this.position,
       collisions: this.collisions ?? attacker._lastCollisions, getWaterInfo: this.getWaterInfo,
       fromInWater: !!attacker.isSwimming })) return false;
-    this.health = Math.max(30, this.health - damage * .5);
+    if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
+    const previousHealth = this.health;
+    this.health = Math.max(0, previousHealth - damage);
+    const push = dir ?? (attacker?.position && _dir.subVectors(this.position, attacker.position));
+    if (push && Number.isFinite(push.x) && Number.isFinite(push.z) && Math.hypot(push.x, push.z) > .0001) {
+      this._lastHit.set(push.x, 0, push.z).normalize();
+    }
+    this.hitBy = attacker;
     this.staggerTimer = .2;
-    if (attacker?.position && this.state === 'return') this.state = 'chase';
+    this.moving = false;
+    this.poseParams = {};
+    if (this.health === 0) {
+      this.state = 'dead';
+      this._dieFromHit({ attacker, weapon, attackId: attackId ?? id, previousHealth, wasAggressor: true });
+      return 0;
+    }
+    this._inclinarGolpe(this._lastHit, knockback);
+    this.state = this.isLeader ? 'order' : 'chase';
     if (this._bubbleTimer <= 0) this.say('¡Ah, se las pica de bravo! ¡Ahora sí lo matamos!', 3);
     return 0;
   }
@@ -146,7 +173,12 @@ export class SquadMember extends Npc {
     return Math.hypot(target.x - next.x, target.z - next.z);
   }
 
-  canReach(player, range = SQUAD.attackRange) {
+  canReach(player, range = SQUAD.attackRange, checkFacing = false) {
+    if (checkFacing) {
+      const dx = player.x - this.position.x, dz = player.z - this.position.z, distance = Math.hypot(dx, dz);
+      const yaw = this.root.rotation.y;
+      if (distance > .001 && (dx * Math.sin(yaw) + dz * Math.cos(yaw)) / distance < .3) return false;
+    }
     return canReachCombatTarget({ from: this.position, to: player, maxDistance: range,
       collisions: this.collisions, getWaterInfo: this.getWaterInfo });
   }
@@ -158,8 +190,8 @@ export class SquadMember extends Npc {
     this.shoutTimer -= dt;
     if (this.shoutTimer > 0) return null;
     const [min, max] = SQUAD.shoutEvery;
-    this.shoutTimer = min + Math.random() * (max - min);
-    const line = pick(list);
+    this.shoutTimer = min + this.random() * (max - min);
+    const line = pick(list, this.random);
     this.say(line, 2.6);
     return line;
   }
@@ -171,34 +203,34 @@ export class SquadMember extends Npc {
   /**
    * Devuelve 'order' (el jefe da la orden), 'swing', 'hit', 'miss', 'giveup' o 'home' (ya subió).
    * @param {number} dt
-   * @param {{ player: THREE.Vector3, canChase: boolean, recall?: boolean }} ctx recall: el jefe ordenó volver
+   * @param {{ player: THREE.Vector3, canChase: boolean, recall?: boolean, canSwing?: boolean }} ctx
    */
-  think(dt, { player, canChase, recall = false }) {
+  think(dt, { player, canChase, recall = false, canSwing = true }) {
+    dt = this.tiempoTrasImpacto(dt);
+    if (dt <= 0) return null;
     this.moving = false;
-    if (!this.active || dt <= 0) return null;
+    if (!this.active) return null;
     this.timer += dt;
     this.attackTimer = Math.max(0, this.attackTimer - dt);
     this.staggerTimer = Math.max(0, this.staggerTimer - dt);
     const toPlayer = Math.hypot(player.x - this.position.x, player.z - this.position.z);
 
+    if (this.state === 'return') return this._goHome(dt);
+    if (recall || (!this.isLeader && (!canChase || this.timer > SQUAD.giveUpTime || toPlayer > SQUAD.giveUpDistance))) {
+      this.retreat();
+      return 'giveup';
+    }
+    if (this.staggerTimer > 0) return null;
     if (this.isLeader) {
-      if (this.state === 'return') return this._goHome(dt);
-      if (recall) { this.state = 'return'; this.poseParams = {}; return null; }
       // de pie junto a la camioneta, señalando a la víctima
       this._face(player.x, player.z, dt, 6);
       this.poseParams = { point: this.timer > .5 ? 1 : 0 };
       return this._shout(dt, LEADER_ORDERS) ? 'order' : null;
     }
 
-    if (this.state !== 'return' && (recall || !canChase || this.timer > SQUAD.giveUpTime || toPlayer > SQUAD.giveUpDistance)) {
-      this.state = 'return';
-      this.poseParams = {};
-      return 'giveup';
+    if (this.state === 'chase' || (this.state === 'windup' && this.stateTimer > SQUAD.windup * .5)) {
+      this._face(player.x, player.z, dt);
     }
-    if (this.state === 'return') return this._goHome(dt);
-    if (this.staggerTimer > 0) return null;
-
-    this._face(player.x, player.z, dt);
     if (this.state === 'windup' || this.state === 'strike' || this.state === 'recover') {
       this.stateTimer -= dt;
       if (this.state === 'windup') {
@@ -213,7 +245,7 @@ export class SquadMember extends Npc {
         this.stateTimer = SQUAD.recover;
         this.attackTimer = SQUAD.cooldown;
         // solo conecta si el jugador sigue al alcance al bajar la pistola
-        return this.canReach(player, SQUAD.attackRange + .4) ? 'hit' : 'miss';
+        return this.canReach(player, SQUAD.attackRange + .4, true) ? 'hit' : 'miss';
       }
       this._setAttack('recover', SQUAD.recover);
       if (this.stateTimer <= 0) { this.state = 'chase'; this.poseParams = {}; }
@@ -221,14 +253,27 @@ export class SquadMember extends Npc {
     }
     this.walkSpeed = SQUAD.chaseSpeed;
     this._shout(dt, THUG_INSULTS);
-    if (this.attackTimer <= 0 && this.canReach(player)) {
+    if (this.canReach(player)) {
+      if (!canSwing || this.attackTimer > 0) {
+        this.poseParams = { combatGuard: true };
+        return null;
+      }
       this.state = 'windup';
       this.stateTimer = SQUAD.windup;
       this._setAttack('windup', SQUAD.windup);
       return 'swing';
     }
+    this.poseParams = {};
     this._moveTowards(player, SQUAD.chaseSpeed, dt, SQUAD.attackRange * .75);
     return null;
+  }
+
+  retreat() {
+    if (!this.isAttacking) return;
+    this.state = 'return';
+    this.stateTimer = SQUAD.returnTimeout;
+    this.moving = false;
+    this.poseParams = {};
   }
 
   _goHome(dt) {
@@ -236,6 +281,14 @@ export class SquadMember extends Npc {
     const left = this._moveTowards(this.door, this.walkSpeed, dt, .2);
     this._face(this.door.x, this.door.z, dt, 6);
     if (left <= .3) { this.enterCar(); return 'home'; }
+    this.stateTimer -= dt;
+    if (this.stateTimer <= 0) {
+      this.state = 'surrendered';
+      this.moving = false;
+      this.poseParams = { stance: 'acurrucado' };
+      this.character?.setWeapon?.(null);
+      return 'surrendered';
+    }
     return null;
   }
 }

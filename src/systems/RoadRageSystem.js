@@ -4,9 +4,11 @@
 // precarga durante la pantalla de carga y se reutiliza.
 import * as THREE from 'three';
 import { AngryDriver, ROAD_RAGE } from '../entities/AngryDriver.js';
+import { seededRandom } from '../entities/npc/mind.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
+const driverId = slot => `conductor:${slot}`;
 
 export class RoadRageSystem {
   /**
@@ -28,6 +30,11 @@ export class RoadRageSystem {
     this._door = new THREE.Vector3();
     this._doorSide = -1;     // lado por el que se bajó: por ahí mismo regresa
     this._people = null;
+    this._roster = new Map();
+    this._fallen = new Map();
+    this._frustum = new THREE.Frustum();
+    this._matrix = new THREE.Matrix4();
+    this._carBounds = new THREE.Sphere(new THREE.Vector3(), 4);
   }
 
   /**
@@ -36,27 +43,54 @@ export class RoadRageSystem {
    * @param {object[]} people lista de peatones que los carros respetan
    */
   setup(district, traffic, people = null, { collisions = null } = {}) {
-    this.reset();
-    this.driver?.dispose();
+    this.dispose();
     this.traffic = traffic;
     this._people = people;
     this.collisions = collisions;
     this.getWaterInfo = (x, z) => district?.getWaterInfo?.(x, z) ?? null;
     this._ground = (x, z, currentY = 0) => district?.getMovementGroundHeight?.(x, z, currentY)
       ?? district?.getGroundHeight?.(x, z) ?? currentY;
-    this.driver = new AngryDriver(this.scene, {
+    this._driverOptions = {
       isWalkable: (x, z) => district?.isWalkableAt?.(x, z) ?? true,
       groundHeight: this._ground, getWaterInfo: this.getWaterInfo, collisions
-    });
+    };
+    this.driver = this._createDriver(1);
+  }
+
+  _createDriver(slot) {
+    const driver = new AngryDriver(this.scene, { ...this._driverOptions, personRandom: seededRandom(0x47110000 + slot) });
+    driver.stableId = driverId(slot);
+    return driver;
   }
 
   get active() { return this.state !== 'idle'; }
+  get fallenDrivers() {
+    const visible = [];
+    for (const { driver } of this._fallen.values()) if (!driver.bodyReleased) visible.push(driver);
+    if (this.driver?.isDead && !this.driver.bodyReleased && !this._fallen.has(this.driver.stableId)) visible.push(this.driver);
+    return visible;
+  }
 
   /** Llamado al robar un retrovisor. Devuelve true si el conductor va a bajarse. */
   trigger(car) {
-    if (!car?.traffic || !this.driver || this.active || this.random() >= ROAD_RAGE.chance) return false;
+    if (!car?.traffic || car.driverAvailable === false || !this._driverOptions || this.active || this.random() >= ROAD_RAGE.chance) return false;
+    const known = this.traffic?.vehicles?.find(v => v.car === car);
+    const slot = known?.spawnOrdinal ?? 1, id = driverId(slot);
+    if (this._roster.get(id)?.health === 0 || this._fallen.has(id) || (this.driver?.stableId === id && this.driver.isDead)) return false;
     const vehicle = this.traffic?.hold(car, true);
     if (!vehicle) return false;
+    if (this.driver?.stableId !== id || this.driver?._disposed) {
+      if (this.driver && !this.driver.isDead) {
+        this._remember(this.driver);
+        this.driver.dispose();
+      }
+      this.driver = this._createDriver(slot, car);
+      const saved = this._roster.get(id);
+      if (saved) {
+        this.driver.health = saved.health;
+        this.driver.looted = saved.looted;
+      }
+    }
     this.vehicle = vehicle;
     this.state = 'stopping';
     this.stopTimer = 0;
@@ -65,7 +99,8 @@ export class RoadRageSystem {
 
   /** Recuperación tras morir o recargar: el conductor vuelve a su carro y el tráfico sigue. */
   reset() {
-    if (this.driver?.active) this.driver.enterCar();
+    if (this.active && this.driver?.isDead) this._endAfterDeath();
+    else if (this.driver?.active) this.driver.enterCar();
     this._release();
   }
 
@@ -84,12 +119,62 @@ export class RoadRageSystem {
     if (index >= 0) this._people.splice(index, 1);
   }
 
+  _remember(driver) {
+    if (!driver || (driver.health === driver.maxHealth && !driver.looted)) return;
+    const record = { health: driver.health, looted: driver.looted };
+    if (driver.emergencyReported) record.emergencyReported = true;
+    if (driver.emergencyAided) record.emergencyAided = true;
+    if (driver.isDead && !driver.bodyReleased) {
+      record.position = (driver._koEnd ?? driver.position).toArray();
+      record.facing = driver._fallYaw;
+      record.plan = driver._koPlan;
+    }
+    this._roster.set(driver.stableId, record);
+  }
+
+  _endAfterDeath() {
+    this._remember(this.driver);
+    this._fallen.set(this.driver.stableId, { driver: this.driver, car: this.vehicle?.car });
+    this._removePerson();
+    this.vehicle = null;
+    this.state = 'idle';
+  }
+
+  _updateFallen(dt, camera) {
+    if (!this._fallen.size) return;
+    const frustum = camera && this._frustum.setFromProjectionMatrix(this._matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const player = this.player.position;
+    for (const [id, fall] of this._fallen) {
+      const { driver, car } = fall;
+      driver.update(dt, { player, frustum, releaseDeadBody: true });
+      // El carro queda sin conductor mientras se ve. El tráfico lo recupera fuera de cámara.
+      if (car && car.position.distanceToSquared(player) > 20 ** 2) {
+        this._carBounds.center.copy(car.position);
+        if (frustum ? !frustum.intersectsSphere(this._carBounds) : car.position.distanceToSquared(player) > 44 ** 2) {
+          this._replaceDriver(car, id);
+          fall.car = null;
+        }
+      }
+      if (driver.bodyReleased && !fall.car) { this._remember(driver); this._fallen.delete(id); }
+    }
+  }
+
+  _replaceDriver(car, id) {
+    this.traffic?.hold(car, false);
+    car.driverId = `${id}:relevo`;
+    car.driverDead = false;
+    car.setDriverInside?.(true);
+  }
+
   /**
    * @param {number} dt
    * @param {{ canChase?: boolean }} ctx canChase = false durante la muerte o el sueño
    */
-  update(dt, { canChase = true } = {}) {
-    if (!this.active || dt <= 0) return;
+  update(dt, { canChase = true, camera = null } = {}) {
+    if (dt <= 0) return;
+    if (this.active && this.driver.isDead) this._endAfterDeath();
+    this._updateFallen(dt, camera);
+    if (!this.active) return;
     const car = this.vehicle.car;
     if (this.state === 'stopping') {
       this.stopTimer += dt;
@@ -123,14 +208,19 @@ export class RoadRageSystem {
 
   _hitPlayer() {
     if (!this.stats || this.stats.salud <= 0 || this.player.isStunned) return;
-    if (!this.driver?.active || !canReachCombatTarget({ from: this.driver.position, to: this.player.position,
+    if (!this.driver?.active || this.driver.isDead || !canReachCombatTarget({ from: this.driver.position, to: this.player.position,
       maxDistance: ROAD_RAGE.attackRange + .35, collisions: this.collisions, getWaterInfo: this.getWaterInfo,
       toInWater: !!this.player.isSwimming })) return;
     const [min, max] = ROAD_RAGE.damage;
     const damage = Math.round(min + this.random() * (max - min));
-    this.stats.salud = Math.max(0, this.stats.salud - damage);
+    const previousHealth = this.stats.salud;
+    this.stats.salud = Math.max(0, previousHealth - damage);
     this.audio?.playThud?.();
     this.player.receiveHit?.(this.player.position.clone().sub(this.driver.position), 2.2, { salud: this.stats.salud });
+    globalThis.window?.dispatchEvent?.(new CustomEvent('npc-player-hit', { detail: {
+      attacker: this.driver, victim: this.player, weapon: 'varilla', previousHealth, health: this.stats.salud,
+      damage: previousHealth - this.stats.salud, position: this.player.position.clone()
+    } }));
     this.onPlayerHurt?.(damage);
     toast(`¡Me pegaron con la varilla! −${damage} de salud.`, 'death');
   }
@@ -138,9 +228,20 @@ export class RoadRageSystem {
   /** Personajes para precargar junto con los demás NPC. */
   get preloadables() { return this.driver ? [this.driver] : []; }
 
+  _clearFallen() {
+    for (const [id, { driver, car }] of this._fallen) {
+      if (car) this._replaceDriver(car, id);
+      driver.dispose();
+    }
+    this._fallen.clear();
+  }
+
   dispose() {
     this.reset();
+    this._clearFallen();
     this.driver?.dispose();
     this.driver = null;
+    this._driverOptions = null;
+    this._roster.clear();
   }
 }

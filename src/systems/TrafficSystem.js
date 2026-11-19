@@ -122,8 +122,9 @@ export class TrafficSystem {
     const kind = police ? 'police' : buseta ? 'buseta' : count * 7 % 10 < 3 ? 'taxi' : 'carro';
     const car = new Car(scene, this._position, Math.atan2(-this._direction.z, this._direction.x),
       { traffic: true, kind, variant: count * 37 });
+    car.driverId = `conductor:${count}`;
     const cruiseSpeed = (10 + random() * 4) * (buseta ? .8 : 1);
-    const vehicle = { car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
+    const vehicle = { car, route, spawnOrdinal: count, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
       acceleration: 0, accelerationLimit: 1.8 + random() * .7, braking: 2.2 + random() * .6,
       reactionTime: .18 + random() * .35, resumeDelay: 0, stopped: false,
       routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
