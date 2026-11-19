@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { DrugDealer } from '../src/entities/DrugDealer.js';
 import { SellPoint } from '../src/entities/SellPoint.js';
+import { RECYCLER_CART } from '../src/entities/RecyclerYard.js';
 import { CraftingStation } from '../src/entities/CraftingStation.js';
 import { ITEMS } from '../src/data/items.js';
 
@@ -297,14 +298,15 @@ test('la recicladora conserva su interfaz y se arma sin navegador', (t) => {
   assert.deepEqual(pedidos, [1.5, 1]);
 });
 
-test('la recicladora se dibuja con tres mallas, sin luces, y cabe en el portón de la bodega', (t) => {
+test('la recicladora agrupa el acopio en un lote y sigue cabiendo en el portón de la bodega', (t) => {
   const { puesto: recicladora } = armar(SellPoint, t);
-  const { mallas, luces, triangulos, caja } = censo(recicladora);
-  assert.equal(mallas.length, 3, 'bodega, aviso y bombilla');
-  assert.ok(triangulos > 1200 && triangulos <= 2600, `${triangulos} triángulos`);
+  const { mallas, luces, caja } = censo(recicladora);
+  assert.deepEqual(mallas.map(malla => malla.name), [
+    'Recicladora', 'Material clasificado de la recicladora', 'Apoyo de la carreta', 'Aviso de la recicladora', 'Bombilla de la recicladora'
+  ]);
   assert.equal(luces.length, 0);
-  // El portón mide 8 m de ancho por 6 de fondo y su piso está a 12 cm: nada atraviesa los muros ni queda bajo el piso.
-  assert.ok(caja.min.x > -3.95 && caja.max.x < 3.95, `x de ${caja.min.x.toFixed(2)} a ${caja.max.x.toFixed(2)}`);
+  // Las cubiertas y el travesaño llegan a las medianeras del portón de 8 × 6 m.
+  assert.ok(caja.min.x >= -4 && caja.max.x <= 4, `x de ${caja.min.x.toFixed(2)} a ${caja.max.x.toFixed(2)} m`);
   assert.ok(caja.min.z > -2.95 && caja.max.z < 2.95, `z de ${caja.min.z.toFixed(2)} a ${caja.max.z.toFixed(2)}`);
   assert.ok(caja.min.y >= 0.12 - 1e-6, `lo más bajo está a ${caja.min.y.toFixed(3)} m`);
   // El aviso se lee desde la calle, que queda en -z, y está por encima de las cabezas.
@@ -317,9 +319,91 @@ test('la recicladora se dibuja con tres mallas, sin luces, y cabe en el portón 
   assert.ok(aviso.position.y <= 0.12 + 2.25 + 1e-6, 'más arriba tapa el letrero del local del fondo');
 });
 
+test('el acopio separa los cantos de cartón, las sacas, el PET, el vidrio y la chatarra', (t) => {
+  const { puesto } = armar(SellPoint, t);
+  const acopio = puesto.group.getObjectByName('Material clasificado de la recicladora');
+  const { position, normal, uv, color } = acopio.geometry.attributes;
+  const { map, roughnessMap, metalnessMap, bumpMap } = acopio.material;
+  assert.ok(acopio.castShadow && acopio.receiveShadow && acopio.material.vertexColors);
+  assert.equal(map.colorSpace, THREE.SRGBColorSpace);
+  assert.equal(roughnessMap.colorSpace, THREE.NoColorSpace);
+  assert.ok(map.generateMipmaps && roughnessMap.generateMipmaps);
+  assert.equal(roughnessMap, metalnessMap);
+  assert.equal(roughnessMap, bumpMap);
+  const bandas = new Map(), vector = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    assert.ok(Math.abs(vector.fromBufferAttribute(normal, i).lengthSq() - 1) < 1e-5);
+    const banda = Math.floor(uv.getY(i) * 8), datos = bandas.get(banda) ?? { x: [Infinity, -Infinity], tonos: new Set() };
+    datos.x[0] = Math.min(datos.x[0], position.getX(i));
+    datos.x[1] = Math.max(datos.x[1], position.getX(i));
+    datos.tonos.add([color.getX(i), color.getY(i), color.getZ(i)].map(v => Math.round(80 * v)).join(','));
+    bandas.set(banda, datos);
+  }
+  assert.equal(bandas.size, 8);
+  assert.ok(bandas.get(1).x[1] < -.75, 'los cortes de cartón quedan en las pacas y la carreta');
+  for (const banda of [2, 3, 4]) assert.ok(bandas.get(banda).x[0] > 1.3, 'costales y envases quedan en el flanco opuesto');
+  for (const banda of [1, 2, 3, 4, 5, 6]) assert.ok(bandas.get(banda).tonos.size > 6, `falta variación en la banda ${banda}`);
+});
+
+test('la penumbra de la carreta nace bajo cada rueda y el apoyo del morro', (t) => {
+  const { puesto } = armar(SellPoint, t), sombra = puesto.group.getObjectByName('Apoyo de la carreta');
+  assert.ok(sombra.material.transparent && !sombra.material.depthWrite);
+  assert.equal(sombra.castShadow, false);
+  const { x, z, yaw, wheelX, track, footX } = RECYCLER_CART;
+  const ray = new THREE.Raycaster(undefined, new THREE.Vector3(0, -1, 0));
+  const axis = new THREE.Vector3(0, 1, 0);
+  puesto.group.updateMatrixWorld(true);
+  for (const [a, b] of [[wheelX, -track], [wheelX, track], [footX, 0]]) {
+    ray.ray.origin.set(a, .3, b).applyAxisAngle(axis, yaw).add(new THREE.Vector3(x, 0, z)).add(puesto.position);
+    assert.ok(Math.abs(ray.intersectObject(sombra)[0]?.point.y - .124) < 1e-6);
+  }
+  const alphas = sombra.geometry.attributes.color;
+  assert.ok(Array.from({ length: alphas.count }, (_, i) => alphas.getW(i)).includes(0));
+});
+
+test('la recicladora cubre las pacas y lonas con la aproximación a la báscula despejada', (t) => {
+  const { puesto } = armar(SellPoint, t);
+  puesto.group.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  for (const x of [-3.08, 3.08]) {
+    ray.set(puesto.position.clone().add(new THREE.Vector3(x, 1.8, 1.18)), new THREE.Vector3(0, 1, 0));
+    assert.ok(ray.intersectObject(puesto.bodega, false).some(({ point }) => point.y > 2.8));
+  }
+  ray.set(puesto.position.clone().add(new THREE.Vector3(0, 1.8, 0.16)), new THREE.Vector3(0, 1, 0));
+  assert.equal(ray.intersectObject(puesto.group).length, 0, 'la báscula sigue a cielo abierto');
+  ray.far = 3.4;
+  for (const x of [-1.22, 0, 1.22]) {
+    ray.set(puesto.position.clone().add(new THREE.Vector3(x, 1.8, -2.89)), new THREE.Vector3(0, 0, 1));
+    assert.equal(ray.intersectObject(puesto.group).length, 0, 'paso libre a la altura de una persona');
+  }
+  ray.far = 3.1;
+  const abajo = new THREE.Vector3(0, -1, 0), punto = new THREE.Vector3();
+  for (const [[x, z], [fx, fz]] of [[[0, -2.2], [0, -.4]], [[3, -4], [1.455, -.768]]]) {
+    for (let t = 0; t <= 30; t++) for (const margen of [-.24, 0, .24]) {
+      punto.set(x + (fx - x) * t / 30 + margen, 3.25, z + (fz - z) * t / 30).add(puesto.position);
+      ray.set(punto, abajo);
+      const acopio = ray.intersectObject(puesto.group).find(({ point }) => point.y > .252 && point.y < 1.5);
+      assert.equal(acopio, undefined, `material delante del pesaje en ${punto.toArray()}`);
+    }
+  }
+});
+
+test('la cubierta de la recicladora conserva la secuencia de azar del puesto', (t) => {
+  const scene = new THREE.Scene();
+  const azar = t.mock.method(Math, 'random', Math.random);
+  const puesto = new SellPoint(scene, new THREE.Vector3(41, 0, 92));
+  t.after(() => puesto.dispose());
+  // Presupuesto del puesto con la báscula, las pacas, las lonas y el aviso anteriores.
+  assert.equal(azar.mock.callCount(), 1128);
+});
+
 test('al quitar la recicladora se libera todo lo que creó', () => {
   const { scene, puesto } = armar(SellPoint);
+  const { map, roughnessMap } = puesto.group.getObjectByName('Material clasificado de la recicladora').material;
+  const released = [];
+  for (const texture of [map, roughnessMap]) texture.addEventListener('dispose', () => released.push(texture));
   assert.equal(sinLiberar(puesto, scene), 0);
+  assert.deepEqual(released, [map, roughnessMap]);
 });
 
 test('la mesa conserva su interfaz y su círculo', (t) => {

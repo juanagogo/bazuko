@@ -1,11 +1,14 @@
 // La parte de sombreado del campo de sol, sin dependencias de la ciudad: la importa cualquier material
 // (carros, postes, estación) sin arrastrar el trazado ni crear ciclos con los módulos que este lee.
 import * as THREE from 'three';
+import { streetLightDeclarations, streetLightDirect, streetLightUniforms } from './StreetLightShader.js';
 
 /** Metros que cubre el canal de altura: 8 bits dan unos 19 cm, de sobra para la sombra de una casa. */
 export const SUN_FIELD_HEIGHT = 48;
 /** Cuánto se aparta la consulta hacia el sol, en fracción de la componente horizontal de su dirección. */
 export const SUN_FIELD_SIDEWAYS = .8;
+/** Por debajo de este tope la sombra de una copa ya no se nota: ahí se apaga y el barrido deja de llevarla. */
+export const CROWN_FADE = .5;
 
 const OPEN_SKY = new THREE.DataTexture(new Uint8Array([0, 255]), 1, 1, THREE.RGFormat);
 OPEN_SKY.minFilter = OPEN_SKY.magFilter = THREE.LinearFilter;
@@ -26,6 +29,8 @@ export const sunFieldUniforms = {
   // Lo mínimo que llega a la sombra: de noche la luna casi no marca y un rincón oscuro sigue siendo jugable.
   uSunLitFloor: { value: 0 },
   uSunSkyFloor: { value: .22 },
+  // Cuánto sol quita una copa: a medias, porque entre las hojas pasa luz.
+  uSunCanopyShade: { value: .62 },
 };
 
 const VERTEX_DECLARATIONS = /* glsl */`
@@ -56,9 +61,21 @@ uniform vec2 uSunFieldSun;
 uniform float uSunFieldOn;
 uniform float uSunLitFloor;
 uniform float uSunSkyFloor;
+uniform float uSunCanopyShade;
 varying vec3 vSunFieldPos;
 varying vec3 vSunFieldNormal;
 varying float vSunFieldCloud;
+float sunFieldAzar( vec2 p ) {
+  vec3 q = fract( p.xyx * .1031 );
+  q += dot( q, q.yzx + 33.33 );
+  return fract( ( q.x + q.y ) * q.z );
+}
+float sunFieldGrano( vec2 p ) {
+  vec2 c = floor( p ), f = fract( p );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( sunFieldAzar( c ), sunFieldAzar( c + vec2( 1.0, 0.0 ) ), f.x ),
+    mix( sunFieldAzar( c + vec2( 0.0, 1.0 ) ), sunFieldAzar( c + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+}
 `;
 // La consulta se aparta de la superficie por su normal y hacia el sol: así una pared no se tapa
 // a sí misma y una azotea queda por encima de su propio edificio.
@@ -72,8 +89,24 @@ float sunFieldY = vSunFieldPos.y + max( vSunFieldNormal.y, 0.0 ) * .9;
   sunFieldAt += sunFieldRay * SUN_FIELD_REACH;
   sunFieldY += sqrt( max( 1.0 - dot( sunFieldRay, sunFieldRay ), 0.0 ) ) * SUN_FIELD_REACH;
 #endif
-vec2 sunFieldTexel = texture2D( uSunField, ( sunFieldAt - uSunFieldRect.xy ) * uSunFieldRect.zw ).rg;
-float sunFieldLit = mix( 1.0, mix( uSunLitFloor, 1.0, smoothstep( -.3, .3, sunFieldY - sunFieldTexel.r * ${SUN_FIELD_HEIGHT.toFixed(1)} ) * vSunFieldCloud ), uSunFieldOn );
+vec4 sunFieldTexel = texture2D( uSunField, ( sunFieldAt - uSunFieldRect.xy ) * uSunFieldRect.zw );
+// La copa tapa entre su base y su tope, con borde ancho; donde su sombra ya roza el piso se apaga sola.
+float sunFieldCopa = smoothstep( -1.2, 1.2, sunFieldTexel.b * ${SUN_FIELD_HEIGHT.toFixed(1)} - sunFieldY ) * smoothstep( -1.2, 1.2, sunFieldY - sunFieldTexel.a * ${SUN_FIELD_HEIGHT.toFixed(1)} )
+  * clamp( ( sunFieldTexel.b * ${SUN_FIELD_HEIGHT.toFixed(1)} - ${CROWN_FADE.toFixed(1)} ) / 1.5, 0.0, 1.0 );
+if ( sunFieldCopa > .004 ) {
+  // Manchas de sol entre las hojas, fijas en el mundo y tendidas a lo largo del rayo: en el piso quedan quietas
+  // y en una pared no hacen rayas. De lejos se aplanan a su promedio para que no titilen.
+  vec2 sunFieldHaz = uSunFieldSun / ${SUN_FIELD_SIDEWAYS.toFixed(2)};
+  vec2 sunFieldMota = vSunFieldPos.xz - sunFieldHaz * ( vSunFieldPos.y / max( sqrt( max( 1.0 - dot( sunFieldHaz, sunFieldHaz ), 0.0 ) ), .3 ) );
+  float sunFieldLejos = smoothstep( 30.0, 70.0, distance( vSunFieldPos, cameraPosition ) );
+  float sunFieldHueco = mix( sunFieldGrano( sunFieldMota * 1.15 ) * .62 + sunFieldGrano( sunFieldMota * 3.3 + 17.0 ) * .38, .5, sunFieldLejos );
+  // El mismo grano se come el borde: la mancha no deja ver el círculo de la copa.
+  sunFieldCopa = smoothstep( sunFieldHueco * .5, .5 + sunFieldHueco * .5, sunFieldCopa )
+    * mix( mix( 1.0, .4, smoothstep( .5, .68, sunFieldHueco ) ), .8, sunFieldLejos );
+}
+// Cero codifica cielo abierto, también cuando el receptor está por debajo de la cota de la calle.
+float sunFieldSolidLit = mix( 1.0, smoothstep( -.3, .3, sunFieldY - sunFieldTexel.r * ${SUN_FIELD_HEIGHT.toFixed(1)} ), min( 1.0, sunFieldTexel.r * 255.0 ) );
+float sunFieldLit = mix( 1.0, mix( uSunLitFloor, 1.0, sunFieldSolidLit * vSunFieldCloud * ( 1.0 - uSunCanopyShade * sunFieldCopa ) ), uSunFieldOn );
 float sunFieldSky = mix( 1.0, mix( mix( uSunSkyFloor, 1.0, sunFieldTexel.g ), 1.0, smoothstep( .4, 7.5, vSunFieldPos.y ) ), uSunFieldOn );
 `;
 const DIRECTIONAL_ANCHOR = 'getDirectionalLightInfo( directionalLight, directLight );';
@@ -85,11 +118,12 @@ const DIRECTIONAL_ANCHOR = 'getDirectionalLightInfo( directionalLight, directLig
 export function patchSunFieldShader(shader, reach = 0) {
   if (!shader?.fragmentShader?.includes('#include <lights_fragment_begin>') || !shader.vertexShader?.includes('#include <project_vertex>')) return false;
   if (shader.vertexShader.includes('vSunFieldPos')) return false;
-  Object.assign(shader.uniforms, sunFieldUniforms);
+  Object.assign(shader.uniforms, sunFieldUniforms, streetLightUniforms);
   shader.vertexShader = VERTEX_DECLARATIONS + shader.vertexShader
     .replace('#include <project_vertex>', `#include <project_vertex>\n${VERTEX_BODY}`);
-  shader.fragmentShader = (reach ? `#define SUN_FIELD_REACH ${reach.toFixed(1)}\n` : '') + FRAGMENT_DECLARATIONS + shader.fragmentShader
+  shader.fragmentShader = (reach ? `#define SUN_FIELD_REACH ${reach.toFixed(1)}\n` : '') + FRAGMENT_DECLARATIONS + streetLightDeclarations + shader.fragmentShader
     .replace('#include <lights_fragment_begin>', FRAGMENT_SAMPLE + THREE.ShaderChunk.lights_fragment_begin
+      .replace('IncidentLight directLight;', `IncidentLight directLight;\n${streetLightDirect}`)
       .replace(DIRECTIONAL_ANCHOR, `${DIRECTIONAL_ANCHOR}\n\t\tdirectLight.color *= sunFieldLit;`))
     .replace('#include <aomap_fragment>', /* glsl */`#include <aomap_fragment>
 reflectedLight.indirectDiffuse *= sunFieldSky;

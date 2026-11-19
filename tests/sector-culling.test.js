@@ -7,7 +7,7 @@ import { FrustumCulling } from '../src/core/FrustumCulling.js';
 import { branchBounds, registerSectorChildren } from '../src/core/SectorCulling.js';
 
 // La ciudad real, armada entera; solo se sustituyen las texturas y la carga de modelos (como en fixed-people).
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
+const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), roughnessMap: null, emissiveMap: new THREE.Texture() });
 const replacements = { ...textures };
 for (const name of ['asphalt', 'sidewalk', 'brick', 'facade', 'roofTiles', 'slab', 'cardboard', 'trashBag', 'dirt', 'concrete']) replacements[name] = textureSet;
 for (const name of ['radialSprite', 'lightbox', 'neon']) replacements[name] = () => new THREE.Texture();
