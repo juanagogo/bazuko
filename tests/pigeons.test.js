@@ -21,6 +21,41 @@ test('diez palomas comparten cinco lotes de dibujo y material, sin luces ni fís
   flock.dispose();
 });
 
+test('el cuello baja el pico por instancia y la siguiente paloma conserva la pose erguida', () => {
+  const { flock } = fixture(2);
+  flock.birds[0].phase = (Math.PI / 2 + .75) / .52;
+  flock.birds[1].phase = (Math.PI * 1.5 + .75) / .52;
+  flock._paint();
+  const [body] = flock.meshes;
+  const { position, pigeonDip, pigeonDippedPosition } = body.geometry.attributes;
+  assert.ok(pigeonDip.getX(0) > .99);
+  assert.equal(pigeonDip.getX(1), 0);
+  let bill = 0;
+  for (let i = 1; i < position.count; i++) if (position.getZ(i) > position.getZ(bill)) bill = i;
+  const dipped = pigeonDippedPosition.getY(bill);
+  assert.ok(position.getY(bill) > .35 && dipped > 0 && dipped < .08);
+  assert.ok(body.castShadow && body.receiveShadow);
+  assert.equal(body.morphTexture, null);
+  for (const [material, base] of [[body.material, THREE.ShaderLib.standard], [body.customDepthMaterial, THREE.ShaderLib.depth]]) {
+    const shader = { ...base, uniforms: {} };
+    material.onBeforeCompile(shader);
+    assert.match(shader.vertexShader, /transformed = mix\(transformed, pigeonDippedPosition, pigeonDip\);/);
+  }
+  flock.dispose();
+});
+
+test('modelar las aves conserva las 80 tiradas globales de una bandada', () => {
+  const real = Math.random;
+  let draws = 0, result;
+  // La escena se crea fuera del contador de la bandada.
+  const scene = new THREE.Scene();
+  Math.random = () => { draws++; return real(); };
+  try { result = new PigeonFlock(scene, { x0: 0, x1: 10, z0: 0, z1: 10 }, { random: () => .42 }); }
+  finally { Math.random = real; }
+  assert.equal(draws, 80);
+  result.dispose();
+});
+
 test('caminan sin salir del parque y descansan cuando el jugador no las asusta', () => {
   const { flock } = fixture(), before = flock.birds.map(bird => bird.position.clone());
   const observer = new THREE.Vector3(25, 0, 25);
@@ -34,6 +69,57 @@ test('caminan sin salir del parque y descansan cuando el jugador no las asusta',
     }
   }
   assert.ok(walking); assert.ok(flock.birds.some((bird, i) => bird.position.distanceTo(before[i]) > .5));
+  flock.dispose();
+});
+
+test('la pila aparta sólo los puntos que caen dentro de su huella, con las mismas tiradas', () => {
+  const bounds = { x0: -8, x1: 8, z0: -8, z1: 8 }, groundHeight = () => .12;
+  const samples = [.5, .5, .3, .4, .2, .6, .8, .6, .2, .2, .8, .6];
+  const create = groundCutout => {
+    let draws = 0;
+    const flock = new PigeonFlock(new THREE.Scene(), bounds, {
+      count: 2, random: () => samples[draws++], groundHeight, groundCutout,
+    });
+    return { flock, draws };
+  };
+  const base = create(null), withFountain = create({ x: 0, z: 0, radius: 2 });
+  assert.equal(base.draws, withFountain.draws);
+  assert.deepEqual(base.flock.birds[0].position.toArray(), [0, .12, 0]);
+  assert.deepEqual(withFountain.flock.birds[0].position.toArray(), [2.015, .12, 0]);
+  assert.deepEqual(base.flock.birds[1].position, withFountain.flock.birds[1].position);
+  assert.ok(withFountain.flock._inside(2.01, 0));
+  assert.ok(!withFountain.flock._inside(1.99, 0));
+  base.flock.dispose(); withFountain.flock.dispose();
+});
+
+test('las palomas cruzan sobre la pila en vuelo y se detienen en el borde al caminar', () => {
+  const samples = [.1875, .5, .3, .4, .2, .6, .5, .5, .3, .4];
+  const flock = new PigeonFlock(new THREE.Scene(), { x0: -8, x1: 8, z0: -8, z1: 8 }, {
+    count: 1, random: () => samples.shift() ?? .5, groundHeight: () => .12,
+    groundCutout: { x: 0, z: 0, radius: 2 },
+  });
+  const [bird] = flock.birds, observer = new THREE.Vector3(-15, 0, 0);
+  flock._takeOff(bird, new THREE.Vector3(-10, 0, 0));
+  assert.ok(bird.target.x > 2, 'un destino dentro de la pila termina en el pavimento');
+  let crossed = false;
+  for (let frame = 0; frame < 150 && bird.state === 'flying'; frame++) {
+    flock.update(1 / 30, observer);
+    if (Math.abs(bird.position.x) < 2) {
+      assert.ok(bird.position.y > .12);
+      crossed = true;
+    }
+  }
+  assert.ok(crossed);
+  assert.equal(bird.state, 'idle');
+  assert.ok(bird.position.distanceTo(bird.target) < 1e-9);
+  bird.state = 'walking';
+  bird.position.set(-2.1, .12, 0);
+  bird.target.set(4, .12, 0);
+  for (let i = 0; i < 15; i++) {
+    flock.update(1 / 30, observer);
+    assert.ok(bird.position.x <= -2);
+  }
+  assert.equal(bird.state, 'idle');
   flock.dispose();
 });
 
