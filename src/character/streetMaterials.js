@@ -67,7 +67,7 @@ export const GARMENTS = {
 // tapa y, con `metePretina`, se mete hacia adentro en el último tramo para no atravesarla en la cadera.
 const CLOTH_MARGIN = .0028, UNDER_MARGIN = .001, UNDER_LAYER = /pants/i, UNDER_TRIM = .023, UNDER_TUCK = [.05, .006];
 
-const PATTERNS = { liso: 0, rayas: 1, franela: 2 };
+const PATTERNS = { liso: 0, rayas: 1, franela: 2, reflectivo: 3 };
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /** `look.real.tonos` válido o null: sin él, o con un color roto, la prenda conserva su textura. */
@@ -329,7 +329,7 @@ const SURFACES = {
         float pixel = max(length(dFdx(p)), length(dFdy(p)));
         if (uStreetPattern < 1.5) {
           tone = mix(tone, uStreetPatternColor, streetStripe(height / .03, .52, pixel / .03));
-        } else {
+        } else if (uStreetPattern < 2.5) {
           // Franela: bandas anchas que se cruzan y una línea fina clara, por las vueltas de cuerpo y manga.
           float around = sleeve > .5 ? atan(across, p.z - .01) * .032
             : p.x + sign(p.x) * smoothstep(0., .05, abs(p.x)) * max(0., .055 - abs(p.z - .005));
@@ -338,6 +338,17 @@ const SURFACES = {
           tone = mix(tone, uStreetPatternColor, bands * .44);
           float thin = max(streetStripe(height / size + .25, .9, w), streetStripe(around / size + .25, .9, w));
           tone = mix(tone, tone * .55 + .3, thin * .4);
+        } else {
+          float offset = mix(abs(p.y - .66), abs(along - .115), sleeve);
+          float tape = 1. - smoothstep(.010, .015 + pixel, offset);
+          tone = mix(tone, uStreetPatternColor, tape);
+          shade = mix(shade, max(shade, .88), tape);
+          vec2 logoUV = (p.xy - vec2(.049, .736)) / vec2(.052, .026) + .5;
+          if (p.z > .043 && all(greaterThan(logoUV, vec2(0.))) && all(lessThan(logoUV, vec2(1.)))) {
+            float ink = texture2D(uStreetDeliveryLogo, logoUV).a;
+            tone = mix(tone, vec3(.93), ink);
+            shade = mix(shade, max(shade, .85), ink);
+          }
         }
       }
       diffuseColor.rgb = tone * mix(1., clamp(shade, .42, 1.55), .82);
@@ -435,7 +446,7 @@ const toneColor = hex => hex ? new THREE.Color(hex) : BLACK;
  * `stubble`, `faceTint` y `brows` son de la piel; `curl`, del pelo; `tonos` y `garment`, de la ropa que los recibe;
  * `leather` y `shoeTone`, del zapato de cuero, que nadie lleva del naranja de su textura.
  */
-export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, seed = 0, detailTexture = null, stubble = 0, faceTint = null, brows = null, curl = 0, tonos = null, garment = null, leather = false, shoeTone = null } = {}) {
+export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, seed = 0, detailTexture = null, stubble = 0, faceTint = null, brows = null, curl = 0, tonos = null, garment = null, leather = false, shoeTone = null, deliveryLogo = null } = {}) {
   if (!KINDS.has(kind)) throw new Error(`Superficie de personaje desconocida: ${kind}`);
   material.metalness = 0;
   material.userData.streetSurface = kind;
@@ -481,6 +492,7 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
       uStreetTop: { value: toneColor(shoeColor ?? (tinted && tonos.arriba)) },
       uStreetBottom: { value: toneColor(tinted && tonos.abajo) },
       uStreetPatternColor: { value: toneColor(tinted && tonos.patronColor) },
+      uStreetDeliveryLogo: { value: deliveryLogo },
       uStreetLight: { value: new THREE.Vector2(...(garment?.luz ?? [shoeColor ? SHOE_LIGHT : 1, 1])) },
       uStreetMargin: { value: margin },
       uStreetWaist: { value: waist },
@@ -492,7 +504,7 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
       .replace('#include <common>', `#include <common>\nuniform mat4 uStreetRestMatrix;\nvarying vec3 vStreetRest;\n${cloth ? 'attribute float streetZone;\nvarying float vStreetZone;\nuniform float uStreetMargin;\nuniform vec3 uStreetWaist;\n' : ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvStreetRest = (uStreetRestMatrix * vec4(position, 1.0)).xyz;\n${cloth ? 'vStreetZone = streetZone;\ntransformed += normal * (uStreetMargin - uStreetWaist.z * smoothstep(uStreetWaist.x - uStreetWaist.y, uStreetWaist.x, position.y));\ntransformed.y = min(transformed.y, uStreetWaist.x);' : ''}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${COMMON}${cloth ? 'varying float vStreetZone;\n' : ''}`)
+      .replace('#include <common>', `#include <common>\n${COMMON}${cloth ? 'uniform sampler2D uStreetDeliveryLogo;\nvarying float vStreetZone;\n' : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>\nfloat streetRoughness = roughness;\n{
         vec3 p = vStreetRest; float surfaceNoise = streetPatch(p);\n${SURFACES[kind]}\n}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor *= streetRoughness / max(roughness, .001);');

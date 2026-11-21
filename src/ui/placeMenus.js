@@ -14,6 +14,7 @@ import { rowEl } from './Menu.js';
 import { shelterPreview } from './ShelterPreview.js';
 import { caletaPanel } from './streetMenus.js';
 import { avisoDeFama, famaNivel } from '../systems/Reputation.js';
+import { DELIVERY_FINE, DELIVERY_GEAR } from '../systems/DeliverySystem.js';
 
 const toast = (text, type = 'info') => window.dispatchEvent(new CustomEvent('toast', { detail: { text, type } }));
 const moneyFoot = (game) => el('span', { class: 'menu__money' }, 'Plata: ', el('span', { text: cop(game.stats.dinero) }));
@@ -100,6 +101,19 @@ export function openShop(game, target = null) {
       );
     }));
     const nivel = fama ? famaNivel(fama.chazas) : null;
+    const deliveries = game.deliveries;
+    if (!chaza && deliveries) body.prepend(el('li', { class: 'row' },
+      icon('bag', { size: 24 }),
+      el('span', { class: 'row__name' }, 'Maletín de Rappi', el('span', { class: 'row__desc',
+        text: deliveries.suspended ? 'Paga la multa para recuperar el equipo de reparto.'
+          : deliveries.owned ? 'Ya lo tengo. Los pedidos están en Misiones (J).'
+          : `${deliveries.purchaseRequirements} Incluye chaqueta y gorra.` })),
+      el('span', { class: 'row__price', text: cop(deliveries.suspended ? DELIVERY_FINE : DELIVERY_GEAR.price) }),
+      button(deliveries.suspended ? 'Pagar multa' : deliveries.owned ? 'Comprado' : 'Comprar', {
+        disabled: deliveries.suspended ? !deliveries.canPayFine : !deliveries.canBuy,
+        onClick: () => { if (deliveries.suspended ? deliveries.payFine() : deliveries.purchase()) game.menu.refresh(); }
+      })
+    ));
     const nota = nivel === 'mala' ? 'Me cobran más: no me tienen confianza.' : nivel === 'muyBuena' ? 'Me rebajan: me tienen aprecio.' : null;
     const dato = [moneyFoot(game), el('span', { class: 'menu__money', text: `Carga ${kilos(inventory.totalWeight.toFixed(1))} de ${kilos(inventory.maxWeight)} kg` })];
     if (fama?.deuda > 0) dato.push(el('span', { class: 'menu__money', text: `Debo ${cop(fama.deuda)}` }));
@@ -198,8 +212,7 @@ export function openComedor(game) {
             el('li', { text: '+80 Hambre (satisface el apetito)' }),
             el('li', { text: '+60 Sed (hidratación completa)' }),
             el('li', { text: '+25 Ánimo y +25 Energía' }),
-            el('li', { text: '+3 min de Calor corporal contra el frío' }),
-            el('li', { text: '+30 XP' })
+            el('li', { text: '+3 min de Calor corporal contra el frío' })
           ))
       : el('div', { class: 'comedor-box is-waiting' },
           el('h4', { class: 'comedor-box__title', text: 'Ración de hoy ya entregada' }),
@@ -225,7 +238,7 @@ export function openComedor(game) {
 
   game.menu.open({
     title: 'Comedor Comunitario',
-    sub: 'Alcaldía Mayor de Bogotá · Integración Social. Ración caliente cada 24 horas.',
+    sub: 'Alcaldía Mayor de Bogotá, Integración Social. Ración caliente cada 24 horas.',
     ic: 'food',
     render
   });

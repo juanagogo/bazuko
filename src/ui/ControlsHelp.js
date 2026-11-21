@@ -21,6 +21,10 @@ export function startControlsHelp() {
     toggle.setAttribute('aria-label', 'Ocultar controles');
   };
   toggle.addEventListener('click', () => root.classList.contains('is-collapsed') ? expand() : collapse());
+  document.getElementById('controls-help-rappi')?.addEventListener('click', () => {
+    collapse();
+    window.dispatchEvent(new CustomEvent('open-pause-menu', { detail: { tab: 'controles' } }));
+  });
   window.addEventListener('keydown', (event) => {
     // En teclado español la tecla Ñ puede llegar como `ñ`/`Ñ`; Semicolon es
     // el código físico de esa tecla en muchos navegadores.

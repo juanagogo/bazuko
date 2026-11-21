@@ -224,7 +224,7 @@ test('mapa con M, destino por clic y por la lista, ruta en el radar y pestañas 
   // Q/E recorren las pestañas; M desde otra pestaña vuelve al mapa y desde el mapa cierra.
   await page.keyboard.press('e');
   await expect(page.getByRole('tab', { name: /Estado/ })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.pause-needs')).toBeVisible();
+  await expect(page.getByRole('tabpanel', { name: 'Estado' }).locator('.pause-state__cuerpo > .pause-needs')).toBeVisible();
   if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/estado.png` });
   await page.keyboard.press('e');
   await expect(page.locator('.pause-settings')).toBeVisible();
@@ -253,9 +253,13 @@ test('radar y mapa señalan lo que necesitas: M + Enter traza la ruta a la fogat
   await startNewGame(page);
   // Cada sesión empieza a las 22:00 con llovizna: sin plata ni comida, lo que queda es la fogata.
   await page.evaluate(() => {
-    const { stats, inventory } = window.__game;
-    stats.dinero = 0; stats.calor = 0;
-    inventory.items.length = 0;
+    const game = window.__game;
+    game.clock.hour = 22;
+    game.weather.setWeather('llovizna', false);
+    game.lastComedorHour = game.totalGameHours;
+    game._poiCache = null;
+    Object.assign(game.stats, { dinero: 0, calor: 0 });
+    game.inventory.clear();
   });
   await expect(page.locator('#minimap-info')).toContainText('Fogata de caneca');
   await expect(page.locator('#minimap-info')).toContainText('Calor gratis');
@@ -269,7 +273,7 @@ test('radar y mapa señalan lo que necesitas: M + Enter traza la ruta a la fogat
   await expect(page.locator('.map-view__place', { hasText: 'Fogata de caneca' })).toHaveCount(1);
   await expect(page.locator('.map-view__place', { hasText: 'Gasolinera' })).toContainText('Solo referencia');
   const filterRows = await page.locator('.map-view__filter').evaluateAll(list => new Set(list.map(b => Math.round(b.getBoundingClientRect().top))).size);
-  expect(filterRows).toBe(1);
+  expect(filterRows).toBe(3);
   if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/mapa-necesidad.png` });
   await page.keyboard.press('Enter');
   await expect.poll(() => page.evaluate(() => window.__game.gps.waypoint?.name)).toBe('Fogata de caneca');

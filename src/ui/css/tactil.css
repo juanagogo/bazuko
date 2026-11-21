@@ -70,6 +70,10 @@ body.tactil.tactil--robando #interaction-prompt { display: none; }
 }
 /* El celular chico acostado: la fila no cabe, y los verbos suben a la derecha. El cartón y la plata se angostan también
    sin dedo, porque a este ancho se pisaban con Pausa. */
+@media (max-width: 843px) and (orientation: landscape) {
+  body.tactil #acciones { bottom: calc(58px + var(--safe-b)); }
+  body.tactil #interaction-prompt { bottom: calc(110px + var(--safe-b)); }
+}
 @media (max-width: 759px) and (orientation: landscape) {
   #hud-dock { width: calc(100vw - 298px - var(--safe-l) - var(--safe-r)); grid-template-columns: 150px minmax(0, 1fr); }
   #topbar { width: 232px; }
@@ -78,9 +82,7 @@ body.tactil.tactil--robando #interaction-prompt { display: none; }
   body.tactil .tactil-boton--mas { left: calc(128px + var(--safe-l)); }
   body.tactil.tactil #quickbar { left: calc(180px + var(--safe-l)); }
   body.tactil.tactil #panel-dock { left: calc(442px + var(--safe-l)); }
-  body.tactil #acciones { bottom: calc(58px + var(--safe-b)); }
   #tactil-mas { left: calc(128px + var(--safe-l)); width: min(496px, calc(100vw - 136px - var(--safe-l) - var(--safe-r))); }
-  body.tactil #interaction-prompt { bottom: calc(110px + var(--safe-b)); }
 }
 /* Con las barras del navegador abajo y arriba queda poco alto: palanca algo menor, y la cinta en lo suyo. */
 @media (max-height: 339px) and (orientation: landscape) {

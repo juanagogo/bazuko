@@ -27,6 +27,9 @@ import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
 import { ComedorComunitario } from '../entities/ComedorComunitario.js';
 import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
+import { BENCH_SLEEP_DURATION } from '../character/BenchSleep.js';
+import { DELIVERY_ITEMS, DeliverySystem } from '../systems/DeliverySystem.js';
+import { deliveryPlaces } from '../world/bogota/deliveryPlaces.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
@@ -268,6 +271,12 @@ export class Game {
     this.comedor = null;
     this.lastComedorHour = null;
     this.dailyMissions = new DailyMissionSystem(this);
+    this.deliveries = new DeliverySystem(this);
+    this.interaction.deliveries = this.deliveries;
+    this._saveDeliveryOnExit = () => {
+      if (this._running && this.deliveries.order?.pickedUp && !this._deathPending && !this._arrestPending && this.stats.salud > 0) this._save();
+    };
+    window.addEventListener('pagehide', this._saveDeliveryOnExit);
     this._missionsModalOpen = false;
     this.cars = [];
     this.traffic = null;
@@ -311,15 +320,11 @@ export class Game {
     this._setupGps();
 
     const district = this.world.active;
-    const hasSave = this._loadIfSave();
-    // Al iniciar una partida nueva, comenzamos al amanecer (6:00 AM) para apreciar la luz matutina de Bogotá
-    if (!hasSave) {
-      this.clock.hour = 6;
-      if (this.weather) {
-        this.weather.setWeather('despejado', false);
-        this.weather.timer = 0;
-        this.weather.wetness = 0;
-      }
+    this._loadIfSave();
+    this.clock.hour = 22;
+    if (this.weather) {
+      this.weather.setWeather('llovizna', false);
+      this.weather.timer = 0;
     }
     // Cada entrada a la partida comienza delante del cambuche, incluso si
     // la partida guardada conserva una ubicación anterior de exploración.
@@ -428,7 +433,7 @@ export class Game {
 
   /** Tecla P: cambiar apariencia en cualquier momento */
   async editLook() {
-    const look = await this.creator.open(this.look, { doneLabel: 'Guardar' });
+    const look = await this.creator.open(this.look, { doneLabel: 'Guardar', deliveryGear: this._creatorDeliveryGear() });
     if (look) {
       await this._applyLook(look);
       this._save();
@@ -436,22 +441,31 @@ export class Game {
   }
 
   _applyLook(look) {
+    const previous = this.look;
     this.look = normalizeLook({ ...look, v: 2 });
-    const ready = this.player.setLook(this.look);
+    const changedGear = Array.isArray(look.deliveryGear) && this.deliveries?.setGear(look.deliveryGear, { applyLook: false, save: false });
+    const ready = this.player.setLook(this.look, this.deliveries?.equipped);
     this.interaction.originId = this.look.origen;
-    window.dispatchEvent(new CustomEvent('look-changed', { detail: { look: this.look } }));
+    if (!changedGear || JSON.stringify(previous) !== JSON.stringify(this.look)) {
+      window.dispatchEvent(new CustomEvent('look-changed', { detail: { look: this.look } }));
+    }
     return ready;
   }
 
   /** Cambio de ropa: abre directamente la sección de ropa */
   async openWardrobe() {
-    const look = await this.creator.open(this.look, { initialTab: 'ropa', doneLabel: 'Vestirme' });
+    const look = await this.creator.open(this.look, { initialTab: 'ropa', doneLabel: 'Vestirme', deliveryGear: this._creatorDeliveryGear() });
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
+  }
+
+  _creatorDeliveryGear() {
+    if (!this.deliveries?.owned) return null;
+    return { pieces: DELIVERY_ITEMS.filter(item => this.inventory.count(item.id) > 0), equipped: this.deliveries.equipped };
   }
 
   get totalGameHours() {
@@ -472,6 +486,7 @@ export class Game {
   serveComedor() {
     if (!this.isComedorAvailable()) return false;
     this.lastComedorHour = this.totalGameHours;
+    this._poiCache = null;
     if (this.stats) {
       this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
       this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
@@ -527,6 +542,8 @@ export class Game {
 
   markBicycleRentalOrigin(bike) {
     this._poiCache = null;
+    const delivery = this.deliveries?.poi;
+    if (delivery && this.gps?.waypoint?.name === delivery.name) return;
     const station = this.bikeStations?.find(item => item.id === bike.rentalOrigin);
     if (station && bike.rentalPaid) this.setGpsWaypoint(this._bicycleStationPoi(station), { silent: true });
   }
@@ -850,6 +867,7 @@ export class Game {
       );
     }
     this._spawnStreetLife(district);
+    this.deliveries?.setPlaces(deliveryPlaces(district, this.collisions, this.shop));
   }
 
   /** Pilas públicas, hogar de paso y entradas al transporte: siempre en los mismos sitios. */
@@ -1001,6 +1019,7 @@ export class Game {
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
+      this.deliveries?.deserialize(data.deliveries);
     } else {
       this.dailyMissions?.init(this.clock?.day ?? 1);
     }
@@ -1026,6 +1045,7 @@ export class Game {
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
+      deliveries: this.deliveries?.serialize(),
       street: this.street?.serialize()
     });
   }
@@ -1051,6 +1071,7 @@ export class Game {
     this.isSleeping = false;
     if (this.player.root) this.player.root.visible = true;
     this.player.sleepingOnBench = false;
+    this.player.endBenchSleep?.();
     if (this.player.action === 'dormir') {
       this.player.action = null;
       this.player.actionTimer = this.player.actionProgress = 0;
@@ -1073,7 +1094,11 @@ export class Game {
         window.dispatchEvent(new CustomEvent('toast', { detail: { text: reason, type: 'info' } }));
         return false;
       }
-      if (banca && !this.player.sitOnBench(banca)) return false;
+      if (banca) {
+        const seated = this.player.benchSeat?.target === banca;
+        if (!this.player.sitOnBench(banca)) return false;
+        this.player.beginBenchSleep(seated);
+      }
       if (residencia) this.stats.dinero -= RESIDENCIA.precio;
     } else if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
@@ -1092,12 +1117,12 @@ export class Game {
       : 3;
     // En el hogar se duerme adentro: afuera, frente a la puerta, no queda nadie acostado.
     if (hogar || residencia) this.player.root.visible = false;
-    window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
+    window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours, banca: !!banca } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
     this.player.stopBasuco?.();
     this.player.settleForSleep?.();
-    this.player.playAction('dormir', 1.6);
+    this.player.playAction('dormir', banca ? BENCH_SLEEP_DURATION : 1.6);
 
     const factor = Math.min(1, hours / 8); // una siesta rinde menos
     this.clock.hour += hours;
@@ -1109,13 +1134,15 @@ export class Game {
       restEffects(st, residencia ? RESIDENCIA : BANCA);
       const robbed = banca ? benchTheft(st) : null;
       this._save();
-      setTimeout(() => {
+      const wake = () => {
         this._finishSleep(hours, { residencia: !!residencia, banca: !!banca });
         const text = residencia ? 'Descansé en la residencia, bajo techo y con ducha.'
           : robbed !== null ? `Descansé en la banca, pero me robaron ${cop(robbed)}.`
             : 'Descansé en la banca. Recuperé algo de energía.';
         window.dispatchEvent(new CustomEvent('toast', { detail: { text, type: robbed !== null ? 'warn' : 'info' } }));
-      }, 1200);
+      };
+      if (banca) this._wakeFromBench = wake;
+      else setTimeout(wake, 1200);
       return true;
     }
     if (hogar) {
@@ -1315,7 +1342,7 @@ export class Game {
 
   _finishArrest() {
     if (!this._arrestPending) return;
-    this.inventory.clear();
+    this.inventory.clear({ keepDeliveryGear: true });
     this.stats.dinero = 0;
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
@@ -1378,6 +1405,13 @@ export class Game {
     this.collisions.setBicycles?.(this.bicycles ?? [], this.player?.bicycle);
   }
 
+  _updateSleepAnimation(dt) {
+    if (!this.player.updateSleepPose?.(dt) || !this._wakeFromBench) return;
+    const wake = this._wakeFromBench;
+    this._wakeFromBench = null;
+    wake();
+  }
+
   _loop = (stamp) => {
     if (!this._running) return;
     requestAnimationFrame(this._loop);
@@ -1410,7 +1444,7 @@ export class Game {
       this.performanceHUD.metrics.sample(now, false);
       this.renderer.resolution.resetWindow();
       // Dormir sí se ve: el cuerpo se acuesta aunque la simulación esté quieta.
-      if (this.isSleeping && !globalThis.document?.hidden) this.player.updateSleepPose?.(dt);
+      if (this.isSleeping && !globalThis.document?.hidden) this._updateSleepAnimation(dt);
       // Detrás de una página entera no hay nada que ver.
       const tapado = this.menu?.opaco && !this._trasRender;
       if (!globalThis.document?.hidden && !tapado && (this.isSleeping || now >= (this._nextPausedRender ?? 0))) {
@@ -1445,6 +1479,7 @@ export class Game {
     this.clock.update(dt);
     this.time.update(dt, this.clock);
     this.dailyMissions?.update(dt, this.clock);
+    this.deliveries?.update(dt);
 
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
     this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
@@ -1592,6 +1627,7 @@ export class Game {
     this._renderFrame(now, true);
     this.profiler?.mark('envioRenderLucesCulling');
 
+    this.deliveries?.updateRoute(now);
     if (this.gps?.update(this.player.position, now) === 'arrived') {
       this._syncGpsBeacon();
       const { name } = this.gps.lastArrival;
@@ -1681,10 +1717,11 @@ export class Game {
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166', { rest: restInfo('cambuche') }],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
-        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
+        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', this.isComedorAvailable() ? { prices: { comida: 0, agua: 0 } } : {}],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {
+          if (entity && entity === this.shop && this.deliveries?.equipmentPoi) return [{ ...this.deliveries.equipmentPoi, ...extra }];
           const pos = entity?.position ?? fallback;
           return pos ? [{ name, icon, color, x: pos.x, z: pos.z, fijo: true, ...extra }] : [];
         })];
@@ -1697,6 +1734,8 @@ export class Game {
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
+      const delivery = this.deliveries?.poi;
+      if (delivery) this._poiCache.push(delivery);
       this._needs = needContext({
         stats: this.stats, inventory: this.inventory, load: this.player?.load, night: this.clock?.isNight,
         sellMult: originEffect(this.look?.origen, 'sellMult'), substanceMult: this.talents?.getEffect?.('substancePriceMult', 1),
@@ -1800,5 +1839,7 @@ export class Game {
     this.roadRage?.dispose?.();
     this.limpieza?.dispose?.();
     this.radio?.destroy?.();
+    this.dailyMissions?.dispose();
+    window.removeEventListener('pagehide', this._saveDeliveryOnExit);
   }
 }

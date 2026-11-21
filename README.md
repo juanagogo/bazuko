@@ -112,8 +112,9 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `W`, `S`, `A/D` en bicicleta | Pedalear, frenar/reversa y girar. Mantener S después de frenar permite retroceder despacio mirando sobre el hombro. Al soltar se conserva el impulso; Mayús permite pedalear más fuerte. |
 | `Espacio` en bicicleta | Saltar con la bicicleta y conservar el impulso en el aire. |
 | `E` | Interactuar con el objetivo cercano. |
-| `E` junto a una banca | Sentarse o levantarse; también puedes levantarte caminando. |
-| `Q` junto a una banca | Abrir el descanso gratuito de 3 horas, con sus beneficios y riesgo de robo antes de confirmar. |
+| `E` junto a una banca | Sentarse en la plaza libre más cercana o levantarse. También puedes levantarte caminando. |
+| `Q` junto a una banca | Consultar el descanso gratuito de 3 horas y su riesgo de robo. Para acostarte, necesitas la banca entera libre de peatones. |
+| `E` junto a la recogida o entrega de un pedido | Recoger o entregar el domicilio a pie o con la bicicleta casi detenida. |
 | `E` junto al hogar de paso o la residencia | Consultar las reglas del alojamiento gratuito o pagar $8.000 por 8 horas en la residencia. Abrir el menú no cobra. |
 | `E` junto a una persona | Cosquilleo: sale una barra que se detiene con `Espacio` y se cancela con `Esc` (en el mando, `LT` y `B`). Si aciertas, robas poco sin que se den cuenta; si fallas, pueden pillarte, y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | `Q` junto a una persona | Robo directo: paga más, siempre se nota, la persona puede defenderse si está de pie y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
@@ -127,7 +128,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `P` | Editar el personaje. |
 | `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. Filtros Cambuche, Residencias y Refugios. Cama: hogar de paso gratis. Moneda: residencia con precio. |
 | `Ñ` | Mostrar u ocultar la ayuda de controles. |
-| `J` / `O` | Abrir o cerrar las misiones del día. |
+| `J` / `O` | Abrir o cerrar Misiones en la pestaña del rol activo, Calle o Rappi. |
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
@@ -140,7 +141,19 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `Z` en la calle | Hacer popó. |
 | Clic en una casilla del costal | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
 
-Al detener la bicicleta, el personaje apoya un pie; al avanzar vuelve a los pedales. En reversa empuja alternando ambos pies sobre el suelo y mira hacia atrás. A gira a la izquierda del ciclista y D a la derecha. Alquilar cuesta $1.000; devolver la bicicleta a la misma estación entrega $2.000 por honestidad, una vez por alquiler pagado. La misión diaria **Bici de ida y vuelta**, disponible con J junto a las tres misiones rotativas, añade $1.000, 30 XP y 10 de ánimo por completar un alquiler y devolverlo al origen; se premia una vez por día. La estación entrega la bicicleta fuera del rack; después de un golpe queda disponible para volver a subir. Ver [bicicletas e interacción](docs/bicicletas.md).
+Al detener la bicicleta, el personaje apoya un pie y vuelve a los pedales al avanzar. En reversa empuja alternando ambos pies sobre el suelo y mira hacia atrás. A gira a la izquierda del ciclista y D a la derecha. En las rampas, la bicicleta y el ciclista se inclinan juntos. Alquilar cuesta $1.000 y devolver la bicicleta a la misma estación entrega $2.000 por honestidad, una vez por alquiler pagado. En **J → Calle**, la misión diaria **Bici de ida y vuelta** añade $1.000, 30 XP y 10 de ánimo por completar un alquiler y devolverlo al origen. Se premia una vez por día. La estación entrega la bicicleta fuera del rack y después de un golpe queda disponible para volver a subir. [Guía de bicicletas](docs/bicicletas.md).
+
+### Domicilios
+
+El mapa marca **La Esquinita — Equipo de Rappi**. El equipo cuesta **$50.000** y se habilita después de completar seis tipos distintos de misiones de Calle. La compra agrega maletín, chaqueta reflectiva y gorra al costal. Cada pieza se puede poner o quitar desde el inventario o desde **P → Ropa → Equipo de reparto**. En el creador, **Al azar** también puede equipar las piezas de reparto del inventario. La ropa de calle queda disponible para volver a usarla. Dentro del juego, consulta **Ayuda → Guía de domicilios de Rappi**.
+
+**J** abre la pestaña del rol activo, **Calle** o **Rappi**. Puedes consultar ambas y cambiar de rol con **Poner maletín** o **Volver a Calle**. Con el maletín puesto avanzan los pedidos de Rappi y las misiones de Calle quedan en pausa hasta que vuelvas a ese rol. Las misiones diarias se siguen renovando a medianoche. Al quitarte el maletín, el pedido queda guardado hasta que vuelvas a ponértelo.
+
+Acepta un pedido en **Rappi**. El GPS marca la tienda o puesto y luego al cliente o a la portería. Usa **E** para recoger y entregar, a pie o con la bicicleta casi detenida. Las entregas a peatones pagan $3.000 y 25 XP. Las entregas a edificios pagan $4.000 y 35 XP. El plazo empieza al recoger y depende de la distancia. Entregar antes de que venza suma **$1.000 de propina**. Si vence, la tarifa base sigue disponible. El contador avanza mientras juegas, también si te quitas el maletín, y se detiene en pausa.
+
+Después de recoger un pedido, **J → Quedarme con el pedido** lo convierte en comida en el costal y suma una falta. A la tercera falta retiran las tres piezas y se suspenden los pedidos. Pagar $18.000 en La Esquinita devuelve el equipo y reactiva la cuenta. La ropa equipada, las entregas, los pedidos pendientes y las faltas se guardan con la partida.
+
+[Guía de domicilios](docs/domicilios.md)
 
 ### Mando
 
@@ -208,7 +221,7 @@ Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperaci
 - **Transporte:** desde el Portal del Centro y las estaciones del Metro se viaja pagando el pasaje o colándose, con riesgo de que te pillen.
 - **Hogar de paso:** de 18:00 a 23:00, una noche bajo techo con ducha, comida y sin robos, sin entrar sustancias ni armas.
 - **Residencia El Descanso:** abierta las 24 horas. Por $8.000 puedes dormir 8 horas en una habitación con cama y ducha, sin entregar tus pertenencias. No incluye comida. En el mapa se distingue por una moneda y el precio; el hogar gratuito lleva una cama y la palabra «gratis».
-- **Bancas:** E permite sentarse o levantarse; Q abre la opción de dormir sentado 3 horas gratis. Recuperas 25 de energía y 5 de ánimo, con un 25 % de riesgo de perder el 20 % de la plata que llevas. El descanso adelanta el reloj y guarda la partida al despertar.
+- **Bancas.** Con **E** puedes compartir la banca si queda una plaza libre. Con **Q** puedes descansar 3 horas gratis si la banca está libre de peatones. El personaje se acuesta de lado, se cubre con un periódico y vuelve a quedar sentado al despertar. Recuperas 25 de energía y 5 de ánimo, con un 25 % de riesgo de perder el 20 % de la plata que llevas. El descanso adelanta el reloj y guarda la partida al despertar.
 
 Los detalles y las cifras están en [docs/vida-de-calle.md](docs/vida-de-calle.md).
 

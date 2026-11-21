@@ -8,6 +8,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import { GAIT_FAMILIES, standAt, standingFrozen } from './gaitFamilies.js';
 import { PoseRig } from './poseRig.js';
 import { BICYCLE, bicycleGrip, bicyclePedal, bicycleGroundFoot } from '../data/bicycle.js';
+import { BENCH_SLEEP_SAMPLES, benchSleepFrame } from './BenchSleep.js';
 
 const V = (x, y, z) => new Vector3(x, y, z);
 const SIGN = { left: 1, right: -1 };
@@ -179,16 +180,30 @@ function banca(rig, m) {
   }
 }
 
-function dormirBanca(rig, m) {
+function dormirBanca(rig, m, progress) {
   banca(rig, m);
-  // Dormita sentado: conserva asiento y pies, con el torso recogido y las manos en el regazo.
-  bendSpine(rig, [.16, .3, .46], .6, .65);
+  if (progress <= 0) return;
+  const pose = benchSleepFrame(progress);
+  const scale = 1.08;
+  const feet = SIDES.map(side => rig.where(`${side}Foot`));
+  const hands = SIDES.map(side => rig.where(`${side}Hand`));
+  const seat = rig.hips.position;
+  setHips(rig, seat.y + (pose.hipY - .55) / scale, seat.z + (pose.hipZ + .05) / scale, -.08, pose.roll);
+  rig.moveHips(pose.hipX / scale, 0, 0);
+  rig.turn('head', .12 * pose.lie, -.16 * pose.lie, -.08 * pose.lie);
   for (const side of SIDES) {
-    const sign = SIGN[side], knee = rig.where(`${side}Leg`), hip = rig.where(`${side}UpLeg`);
-    const on = hip.clone().lerp(knee, .4);
-    rig.reachArm(side, V(sign * .065, on.y + .13, on.z), V(sign * .9, -.5, -.35));
-    rig.hand(side, V(-sign * .8, -.12, .4), V(0, 1, -.1));
-    rig.curl(side, .32);
+    const sign = SIGN[side], index = side === 'left' ? 0 : 1;
+    const foot = feet[index].lerp(V(.64 + sign * .025, .565 + sign * .035, .035 - sign * .06).divideScalar(scale), pose.legs);
+    foot.y += .155 * Math.sin(pose.legs * Math.PI);
+    rig.reachLeg(side, foot, V(sign * .13 + pose.lie * .27, .6 - .8 * pose.lie, 1));
+    rig.orient(`${side}Foot`, .08 * pose.legs, (sign * .16 + pose.legs * .32), pose.roll * .81);
+    rig.orient(`${side}Toe`, 0, sign * .16 + pose.legs * .32, pose.roll * .81);
+    const hand = hands[index].lerp(V(pose.gripX + sign * .138, pose.gripY, pose.gripZ - .025).divideScalar(scale), pose.reach);
+    rig.reachArm(side, hand, V(sign * .76, -.6, -.45));
+    if (pose.reach > .1) {
+      rig.hand(side, V(-sign * .14, -.2, .97), V(0, -1, 0));
+      rig.curl(side, .41, .3);
+    }
   }
 }
 
@@ -636,7 +651,7 @@ const CATALOG = {
   sentado: { pose: sentado, walk: false, hip: true, transition: .8 },
   acurrucado: { pose: acurrucado, walk: false, hip: true, transition: .9 },
   banca: { pose: banca, walk: false, hip: true, transition: .7 },
-  'dormir-banca': { pose: dormirBanca, walk: false, hip: true, transition: .6 },
+  'dormir-banca': { pose: (rig, m) => dormirBanca(rig, m, 1), walk: false, hip: true, transition: .6 },
   bicicleta: { pose: bicicleta, walk: false, hip: true, pedal: true, transition: .3 },
   pedir: { pose: pedir, walk: false, hip: true, transition: .9 },
   paraguas: { pose: paraguas, walk: true, steady: true },
@@ -782,7 +797,20 @@ export function bakeStances(scene, standing = null) {
   rig.reset();
   const holds = bakeHolds(rig, m);
   rig.reset();
-  return { stances, knockout, style: bakeStyle(rig), holds };
+  const benchSleep = bakeBenchSleep(rig, m);
+  rig.reset();
+  return { stances, knockout, style: bakeStyle(rig), holds, benchSleep };
+}
+
+function bakeBenchSleep(rig, m) {
+  const bones = [...rig.reference.keys()];
+  const frames = [];
+  for (let i = 0; i <= BENCH_SLEEP_SAMPLES; i++) {
+    rig.reset();
+    dormirBanca(rig, m, i / BENCH_SLEEP_SAMPLES);
+    frames.push({ q: bones.map(bone => bone.quaternion.clone()), hip: rig.hips.position.clone() });
+  }
+  return { bones: bones.map(bone => bone.name), frames };
 }
 
 /**

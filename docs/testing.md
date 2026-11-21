@@ -16,11 +16,21 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `cures.test.js` comprueba que cada remedio cure una enfermedad que existe y no se gaste sin ella, que la aguapanela cure la gripe y se tome aunque no la haya, que solo la basura con metal traiga tétanos y dormir sucio traiga sarna, y que las partidas viejas conserven la intoxicación. `dealer.test.js` verifica que comprarle al dealer para revenderle nunca deje ganancia, ni con Contactos; que `E` abra su tienda sin vender; que se venda solo la sustancia elegida, y que la requisa se lleve la mercancía sin pagar.
 
-`rest.test.js` cubre la residencia de pago y las bancas: cobro único, límites de dinero y distancia, recuperación, robo sin tocar la caleta, cambio de día, premio de misión guardado e iconos diferentes para alojamiento gratuito y pagado. `stances.test.js` mide asiento, pies, cabeza y manos al dormitar. `tests/e2e/rest.spec.js` recorre las puertas y los menús reales, marca la residencia en el mapa, duerme en una banca y vuelve a levantarse; también comprueba que Ayuda se pueda pulsar y quede separada de los paneles en 1280, 800 y 390 píxeles de ancho.
-
 `inventory-actions.test.js` verifica que vaciar el inventario notifique a sus suscriptores, desequipe el arma y cancele su ataque pendiente. También comprueba que intentar fumar nadando, en el aire o aturdido conserve objeto, necesidades, audio y efectos, y que un consumo permitido gaste una sola unidad.
 
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
+
+## Domicilios, descanso y bicicleta
+
+```sh
+node --experimental-test-module-mocks --test tests/deliveries.test.js tests/rest.test.js tests/stances.test.js tests/fixed-people.test.js tests/bicycle.test.js
+npm run test:e2e -- tests/e2e/deliveries.spec.js tests/e2e/rest.spec.js tests/e2e/bicycle.spec.js
+```
+
+- `deliveries.test.js` comprueba el cobro único de $50.000 y el requisito de seis tipos distintos de misiones de Calle, la cercanía para recoger y entregar, el plazo y la propina, el cambio de rol, la suspensión y la reactivación. También verifica que el pedido y el historial de tipos de misión se recuperen al cargar.
+- `rest.test.js` cubre la plaza libre más cercana, la ocupación de la banca, el cobro único de la residencia, el robo sin tocar la caleta, el cambio de día, el premio guardado y los iconos de alojamiento. `stances.test.js` mide el apoyo del cuerpo y el alcance de las manos al periódico. `fixed-people.test.js` verifica que cada peatón sentado esté vinculado a su banca.
+- `bicycle.test.js` verifica que la bicicleta y el ciclista se inclinen juntos al recorrer las rampas del viaducto, además de los controles y el alquiler.
+- `tests/e2e/deliveries.spec.js` recorre la compra, el creador, las pestañas de misión, la recogida y entrega en bicicleta con y sin propina, la recarga y la multa. `tests/e2e/rest.spec.js` recorre la residencia, su ruta en el mapa y el sueño en banca hasta volver a levantarse. También comprueba el botón Ayuda a 1280, 800 y 390 píxeles de ancho.
 
 ## Sala de pruebas
 

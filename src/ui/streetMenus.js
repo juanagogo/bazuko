@@ -196,7 +196,7 @@ export function caletaPanel(game) {
   const sacar = (id, qty) => mover((i, q) => caleta.take(inventory, i, q), id, qty, 'sacar');
 
   const enMano = game.player?.equippedWeapon;
-  const costal = inventory.items.filter((e) => ITEMS[e.id] && !(ITEMS[e.id].weapon && ITEMS[e.id].weapon === enMano));
+  const costal = inventory.items.filter((e) => ITEMS[e.id] && !ITEMS[e.id].deliveryGear && !(ITEMS[e.id].weapon && ITEMS[e.id].weapon === enMano));
   const filaCostal = (e) => {
     const cabe = caleta.room(e.id, built);
     return rowTwo({

@@ -10,6 +10,9 @@ import { Game } from '../src/core/game.js';
 import { GpsNavigation } from '../src/systems/GpsNavigation.js';
 import { textoDelPrompt } from '../src/ui/HUD.js';
 import { DailyMissionSystem } from '../src/systems/DailyMissionSystem.js';
+import { BICYCLE } from '../src/data/bicycle.js';
+import { Bogota } from '../src/world/districts/Bogota.js';
+import { viaductSurface } from '../src/world/bogota/ColpatriaViaduct.js';
 
 test('E elige la estación, luego conserva la bici montada como único objetivo', () => {
   const previous = globalThis.window;
@@ -56,13 +59,57 @@ const sceneFor = () => {
   });
   const interaction = new InteractionSystem(player, { items: [] }, stats);
   interaction.register(station); bikes.forEach(b => interaction.register(b));
-  const step = (dt = 1 / 60) => {
+  const step = (dt = 1 / 60, groundHeight = () => 0) => {
     collisions.setBicycles(bikes, player.bicycle);
-    player.update(dt, null, collisions, () => 0);
+    player.update(dt, null, collisions, groundHeight);
     bikes.forEach(b => b.update(dt, player)); input.endFrame();
   };
   return { scene, player, input, station, bikes, collisions, interaction, stats, step };
 };
+
+test('la bici y el ciclista se inclinan con el apoyo de las ruedas en las rampas del viaducto', () => {
+  const f = sceneFor(), bike = f.bikes[0];
+  const city = new Bogota();
+  city.map = city._layout();
+  const ground = city.getPlayerGroundSurface.bind(city);
+  assert.ok(bike.mount(f.player));
+
+  for (const [z, sign] of [[27, -1], [300, 1], [60, 0]]) {
+    f.player.position.set(75, viaductSurface(75, z), z);
+    for (let i = 0; i < 40; i++) f.step(1 / 60, ground);
+    assert.equal(f.player.groundSurface.layer, 'viaduct');
+    const pitch = bike.visual.rotation.x;
+    assert.ok(sign ? pitch * sign > .2 : Math.abs(pitch) < .001, `inclinación en Z ${z}: ${pitch}`);
+    assert.equal(f.player.character.group.rotation.x, pitch);
+    assert.equal(f.player.character.group.position.y, bike.visual.position.y);
+    assert.equal(f.player.root.rotation.x, 0);
+    assert.equal(f.player.position.y, viaductSurface(75, z));
+    for (const along of [-BICYCLE.wheelbase / 2, BICYCLE.wheelbase / 2]) {
+      const tread = bike.visual.localToWorld(new THREE.Vector3(0, 0, along));
+      assert.ok(Math.abs(tread.y - viaductSurface(tread.x, tread.z)) < .015, 'la rueda sigue el asfalto');
+    }
+  }
+
+  f.player.position.set(75, viaductSurface(75, 27), 27);
+  for (let i = 0; i < 40; i++) f.step(1 / 60, ground);
+  f.input.pressedThisFrame.add('Space');
+  for (let i = 0; i < 12; i++) f.step(1 / 60, ground);
+  assert.equal(f.player.isGrounded, false);
+  assert.ok(Math.abs(bike.visual.rotation.x) < .01, 'en el aire deja de seguir la pendiente');
+  for (let i = 0; i < 60; i++) f.step(1 / 60, ground);
+  assert.ok(bike.visual.rotation.x < -.2, 'al aterrizar vuelve a seguir la rampa');
+  assert.ok(bike.dismount(f.player));
+  assert.equal(f.player.character.group.rotation.x, 0);
+  assert.equal(f.player.character.group.position.y, 0);
+
+  const street = ground(75, 27, { grounded: false });
+  bike.position.set(75, street.height, 27);
+  f.player.position.copy(bike.position);
+  assert.ok(bike.mount(f.player));
+  for (let i = 0; i < 40; i++) f.step(1 / 60, ground);
+  assert.equal(f.player.groundSurface.layer, 'ground');
+  assert.ok(Math.abs(bike.visual.rotation.x) < .001, 'debajo del puente sigue la calle inferior');
+});
 
 function withEvents(run) {
   const previous = globalThis.window;

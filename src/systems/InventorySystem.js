@@ -46,7 +46,7 @@ export class InventorySystem {
    */
   add(item, qty = 1, { vence = null } = {}) {
     if (!item) return false;
-    if (this.totalWeight + item.weight * qty > this.maxWeight) return false;
+    if (!item.deliveryGear && this.totalWeight + item.weight * qty > this.maxWeight) return false;
 
     let existing = this.items.find((i) => i.id === item.id);
     if (existing) {
@@ -85,19 +85,18 @@ export class InventorySystem {
   }
 
   /** Vacía el inventario sin devolver valor. */
-  clear() {
-    this.items = [];
+  clear({ keepDeliveryGear = false } = {}) {
+    this.items = keepDeliveryGear ? this.items.filter(item => ITEMS[item.id]?.deliveryGear) : [];
     this._notify();
   }
 
   /** Vacía y devuelve el dinero total */
   sellAll(priceMultiplier = 1) {
-    const total = this.items.reduce(
+    const total = this.items.filter(item => !ITEMS[item.id]?.deliveryGear).reduce(
       (s, i) => s + i.value * i.qty * priceMultiplier,
       0
     );
-    this.items = [];
-    this._notify();
+    this.clear({ keepDeliveryGear: true });
     return Math.round(total);
   }
 

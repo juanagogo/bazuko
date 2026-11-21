@@ -22,20 +22,22 @@ test('descanso: residencia de pago, mapa diferenciado y sueño gratuito en banca
     let benchRecord = null, benchStart = null;
     const animate = g.player.updateSleepPose.bind(g.player);
     g.player.updateSleepPose = dt => {
-      animate(dt);
-      if (!benchRecord || !g.player.sleepingOnBench) return;
+      const finished = animate(dt);
+      if (!benchRecord || !g.player.sleepingOnBench || g.player.movement.benchSleep?.progress !== 1) return finished;
       benchRecord.animationFrames = (benchRecord.animationFrames ?? 0) + 1;
       const group = g.player.character.group;
       const left = group.getObjectByName('mixamorigLeftFoot'), right = group.getObjectByName('mixamorigRightFoot');
       if (!left || !right) {
         benchRecord.missingFeet = true;
-        return;
+        return finished;
       }
       group.updateWorldMatrix(true, true);
       benchRecord.feet = [left, right].map(b => b.getWorldPosition(benchStart.clone()).y - g.player.position.y);
       benchRecord.seated = !!g.player.benchSeat;
       benchRecord.still = g.player.position.distanceTo(benchStart) < .0001;
       benchRecord.posed = true;
+      benchRecord.covered = g.player.root.getObjectByName('periodico-banca')?.visible;
+      return finished;
     };
     window.addEventListener('sleep-start', () => {
       const start = g.player.position.clone();
@@ -90,16 +92,46 @@ test('descanso: residencia de pago, mapa diferenciado y sueño gratuito en banca
   await expect(page.locator('.rest-options')).toContainText('25 %');
   await page.screenshot({ path: info.outputPath('banca-opciones.png') });
   await page.getByRole('button', { name: 'Dormir 3 h gratis', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__restSnapshots.find(r => r.banca)?.covered), { intervals: [50, 100] }).toBe(true);
+  await expect(page.locator('#cerrado')).toBeHidden();
+  await page.screenshot({ path: info.outputPath('banca-periodico.png') });
   await expect.poll(() => page.evaluate(() => window.__game.isSleeping)).toBe(false);
   const bench = await page.evaluate(() => ({ record: window.__restSnapshots.find(r => r.banca),
     sitting: !!window.__game.player.benchSeat, energy: window.__game.stats.energia,
     saved: JSON.parse(localStorage.getItem('habitante-de-calle-save-v1')) }));
   expect(bench.record.hidden).toBe(false); expect(bench.record.seated).toBe(true); expect(bench.record.still).toBe(true);
   expect(bench.record.posed, JSON.stringify(bench.record)).toBe(true);
-  for (const y of bench.record.feet) { expect(y).toBeGreaterThan(.02); expect(y).toBeLessThan(.16); }
+  for (const y of bench.record.feet) { expect(y).toBeGreaterThan(.45); expect(y).toBeLessThan(.75); }
+  expect(await page.evaluate(() => window.__game.player.root.getObjectByName('periodico-banca').visible)).toBe(false);
   expect(bench.energy).toBeGreaterThan(34); expect(bench.sitting).toBe(true);
   expect(bench.saved.stats.energia).toBeGreaterThan(34);
   await page.screenshot({ path: info.outputPath('banca-despertar.png') });
+  await page.keyboard.press('e');
+  await expect.poll(() => page.evaluate(() => !!window.__game.player.benchSeat)).toBe(false);
+  await page.evaluate(() => {
+    const g = window.__game;
+    const npc = g.world.active.npcs.find(n => n.fijo?.benchSeat && !n.fijo.out);
+    const { spot } = npc.fijo.benchSeat;
+    g.player.position.copy(npc.position);
+    g.player.position.x += .35 * Math.sin(spot.rot);
+    g.player.position.z += .35 * Math.cos(spot.rot);
+    g.player.root.position.copy(g.player.position);
+    g.player.resetGrounding();
+    g.cameraRig.yaw = spot.rot;
+    g.cameraRig._snap = true;
+  });
+  await expect.poll(() => page.evaluate(() => window.__game.interaction.currentTargetType)).toBe('bench');
+  await page.keyboard.press('e');
+  await expect.poll(() => page.evaluate(() => !!window.__game.player.benchSeat)).toBe(true);
+  const spacing = await page.evaluate(() => {
+    const { player, world } = window.__game;
+    const { side, spot } = player.benchSeat;
+    const npc = world.active.npcs.find(n => n.fijo?.benchSeat?.spot === spot && !n.fijo.out);
+    return { side, npcSide: npc.fijo.benchSeat.side, distance: player.position.distanceTo(npc.position) };
+  });
+  expect(spacing.side).toBe(-spacing.npcSide);
+  expect(spacing.distance).toBeCloseTo(.84);
+  await page.screenshot({ path: info.outputPath('banca-compartida.png') });
   await page.keyboard.press('e');
   await expect.poll(() => page.evaluate(() => !!window.__game.player.benchSeat)).toBe(false);
   await page.getByRole('button', { name: 'Mostrar controles', exact: true }).click({ timeout: 5000 });

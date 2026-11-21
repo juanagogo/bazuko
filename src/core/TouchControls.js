@@ -230,11 +230,10 @@ export class TouchControls {
       return null;
     }
     const codigo = this._teclaDe(accion);
-    if (codigo === 'Space') {
-      if (this.game?.steal?.minigameActive) this._barraHasta = performance.now() + BRINCO_TRAS_BARRA_MS;
-      else if (performance.now() < this._barraHasta) return null;
-    }
+    const detieneBarra = codigo === 'Space' && this.game?.steal?.minigameActive;
+    if (codigo === 'Space' && !detieneBarra && performance.now() < this._barraHasta) return null;
     this._bajar(codigo);
+    if (detieneBarra) this._barraHasta = performance.now() + BRINCO_TRAS_BARRA_MS;
     return codigo;
   }
 

@@ -132,6 +132,8 @@ export class InteractionSystem {
     }
     // Con una persona más cerca que el carro, el aviso y la E son del cosquilleo. Basura, tiendas y demás conservan su turno.
     if ((nearestType === 'car' || nearestType === 'dog') && this.personCloserThan?.(nearestDist)) nearest = nearestType = null;
+    const delivery = this.deliveries?.nearbyStop;
+    if (delivery) { nearest = delivery; nearestType = 'delivery'; }
     this.currentTarget = nearest;
     this.currentTargetType = nearestType;
 
@@ -171,6 +173,9 @@ export class InteractionSystem {
     // Sin objetivo la tecla sigue libre: el cosquilleo la lee después, en `StealSystem`.
     if (nearest && input.consumePress('KeyE')) {
       switch (nearestType) {
+        case 'delivery':
+          this.deliveries.interact(nearest);
+          break;
         case 'pickup':
           this._harvestTrash(nearest, false);
           break;

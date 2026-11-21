@@ -16,6 +16,7 @@ import { famaSection } from './streetMenus.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
+import { DELIVERY_FINE, DELIVERY_GEAR, DELIVERY_STRIKE_LIMIT, DELIVERY_TIP } from '../systems/DeliverySystem.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -220,6 +221,11 @@ function statePanel(game) {
 }
 
 function missionsSection(game) {
+  if (game?.deliveries?.ready) {
+    return el('div', { class: 'pause-section pause-section--missions' },
+      sectionTitle('pin', 'Pedidos de Rappi'),
+      el('p', { class: 'pause-mission-desc', text: game.deliveries.objective ?? 'Abre Misiones (J) para aceptar un pedido.' }));
+  }
   const missions = game?.dailyMissions?.missions ?? [];
   if (!missions.length) return null;
   return el('div', { class: 'pause-section pause-section--missions' },
@@ -230,7 +236,7 @@ function missionsSection(game) {
       return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
         el('div', { class: 'pause-mission-head' },
           el('strong', { class: 'pause-mission-title', text: m.title }),
-          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}` })),
         el('p', { class: 'pause-mission-desc', text: m.desc }),
         el('div', { class: 'pause-meter' },
           el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),
@@ -317,10 +323,23 @@ function settingsPanel(game) {
         () => { game.setGpsBeaconVisible?.(game.showGpsBeacon === false); game.menu.refresh(); }))));
 }
 
-function controlsPanel() {
+function controlsPanel(game) {
   // Con el dedo no hay teclas: en la celda va el nombre del botón.
   const dedo = modoEntrada() === 'tactil', mando = modoEntrada() === 'mando';
-  return el('div', { class: 'pause-controls' }, (dedo ? CONTROLES_CON_EL_DEDO : mando ? CONTROLES_CON_MANDO : CONTROL_GROUPS).map(([title, items]) =>
+  const interact = dedo ? 'Toque la cinta' : mando ? 'Pulse A' : 'Pulse E';
+  const rappi = game.deliveries && el('section', { class: 'pause-section pause-rappi-help' },
+    sectionTitle('bag', 'Guía de domicilios de Rappi'),
+    el('ol', {},
+      el('li', { text: `Complete ${game.deliveries.requiredMissions} tipos distintos de misiones de Calle y reúna ${cop(DELIVERY_GEAR.price)}. ${interact} en La Esquinita para comprar el maletín, la chaqueta y la gorra.` }),
+      el('li', { text: `Abra Misiones${dedo || mando ? '' : ' con J u O'} y elija Rappi. Use «Poner maletín» si necesita equiparlo y «Aceptar pedido» para marcar la recogida en el GPS.` }),
+      el('li', { text: `Siga el GPS. ${interact} en el comercio para recoger y junto al cliente o la portería para entregar. Puede hacerlo a pie o con la bici casi detenida.` })),
+    el('p', { text: `Entregue antes de que venza el contador para ganar ${cop(DELIVERY_TIP)} de propina. Si se acaba el tiempo, aún cobra la tarifa base.` }),
+    el('p', { text: `En Misiones, «Seguir pedido» vuelve a marcar el destino y «Volver a Calle» quita el maletín. Quedarse con un pedido recogido suma una falta. Con ${DELIVERY_STRIKE_LIMIT} faltas pierde el equipo y paga ${cop(DELIVERY_FINE)} en La Esquinita para recuperarlo.` }),
+    button('Abrir Misiones', { onClick: () => {
+      game.menu.close();
+      window.dispatchEvent(new CustomEvent('open-missions'));
+    } }));
+  return el('div', { class: 'pause-controls' }, rappi, (dedo ? CONTROLES_CON_EL_DEDO : mando ? CONTROLES_CON_MANDO : CONTROL_GROUPS).map(([title, items]) =>
     el('div', { class: 'pause-section' },
       el('h3', { class: 'pause-section-title', text: title }),
       el('ul', { class: 'pause-controls-list' }, items.map(([key, text]) =>

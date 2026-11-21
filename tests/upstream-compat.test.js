@@ -88,7 +88,7 @@ test('un destino guardado con el nombre anterior recupera el del letrero', () =>
   const load = (gps) => {
     const marked = [];
     const game = Object.assign(Object.create(Game.prototype), {
-      stats: stub, clock: stub, inventory: stub, talents: stub, diseases: stub, player: {}, gps: {},
+      stats: stub, clock: stub, inventory: stub, talents: stub, diseases: stub, player: {}, gps: {}, bicycles: [], bikeStations: [],
       save: { load: () => ({ stats: {}, clock: {}, gps }) },
       setGpsWaypoint: (waypoint, options) => marked.push([waypoint, options]),
     });
