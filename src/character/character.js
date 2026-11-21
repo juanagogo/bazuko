@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
 import { animationDamping } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
-import { createWeapon } from './props.js';
+import { createDeliveryBag, createDeliveryDecal, createWeapon } from './props.js';
+import { DELIVERY_COLORS } from './deliveryLook.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
 import { BICYCLE, bicycleGrip, bicyclePedal, bicycleGroundFoot } from '../data/bicycle.js';
+import { benchSleepFrame } from './BenchSleep.js';
 
 export { DEFAULT_LOOK };
 
@@ -76,6 +78,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     top2: lam('#e8e3d6'),
     bottom: lam('#33445c'),
     stripe: lam('#f4f1e8'),
+    reflective: lam(DELIVERY_COLORS.reflective),
     shoe: lam('#1c1c1c'),
     sole: lam('#eeeeee'),
     hat: lam('#c0392b'),
@@ -122,6 +125,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
 
   const sack = mesh(new THREE.SphereGeometry(0.22, 14, 10), M.sack, 0, 0.28, -0.27);
   torso.add(sack);
+  let deliveryBag = null;
 
   // esqueleto de brazos y piernas
   function armRig(side) {
@@ -186,22 +190,35 @@ export function createCharacter(initial = DEFAULT_LOOK) {
   const clear = (g) => {
     for (const c of [...g.children]) {
       g.remove(c);
-      c.traverse((o) => o.geometry?.dispose());
+      c.traverse((o) => { o.geometry?.dispose(); if (o.userData.ownsMaterial) o.material.dispose(); });
     }
   };
 
   let look = normalizeLook(initial);
+  let deliveryGear = initial.deliveryGear ?? [];
   let bulk = 1;
+
+  function syncDeliveryBag() {
+    const on = deliveryGear.includes('bag');
+    if (on && !deliveryBag) {
+      deliveryBag = createDeliveryBag();
+      deliveryBag.position.set(0, .31, -.30);
+      torso.add(deliveryBag);
+    }
+    if (deliveryBag) deliveryBag.visible = on;
+    if (on) sack.visible = false;
+  }
 
   function build() {
     const L = look;
+    const jacket = deliveryGear.includes('jacket');
     M.skin.color.set(PALETTES.piel[L.piel]);
     M.hair.color.set(PALETTES.pelo[L.peloColor]);
     M.iris.color.set(PALETTES.ojos[L.ojos]);
     M.top.color.set(PALETTES.ropa[L.arribaColor]);
     M.bottom.color.set(PALETTES.ropa[L.abajoColor]);
     M.shoe.color.set(PALETTES.zapato[L.zapatoColor]);
-    M.hat.color.set(PALETTES.ropa[L.cabezaColor]);
+    M.hat.color.set(deliveryGear.includes('cap') ? DELIVERY_COLORS.red : PALETTES.ropa[L.cabezaColor]);
     M.top.map = L.arriba === 'rayas' ? stripes() : null;
     M.top.needsUpdate = true;
 
@@ -234,6 +251,13 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       const collar = mesh(new THREE.TorusGeometry(0.12, 0.035, 6, 14), M.top, 0, 0.47, 0);
       collar.rotation.x = Math.PI / 2;
       slots.torso.add(collar);
+      if (jacket) {
+        const stripe = mesh(new THREE.CylinderGeometry(.204, .204, .041, 20, 1, true), M.reflective, 0, .215, 0);
+        stripe.scale.copy(chest.scale);
+        slots.torso.add(stripe);
+        const logo = createDeliveryDecal(.075, .039);
+        if (logo) { logo.position.set(.085, .315, .177); slots.torso.add(logo); }
+      }
     } else {
       const neck = mesh(new THREE.TorusGeometry(0.09, 0.02, 6, 14), M.top, 0, 0.46, 0.01);
       neck.rotation.x = Math.PI / 2;
@@ -256,6 +280,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         s.upper.add(st);
       }
       s.lower.add(capsule(r * 0.95, 0.08, longSleeve ? M.top : M.skin));
+      if (jacket) s.upper.add(mesh(new THREE.CylinderGeometry(r * 1.03, r * 1.03, .034, 14), M.reflective, 0, -.105, 0));
       s.lower.add(mesh(new THREE.SphereGeometry(0.07, 10, 8), M.skin, 0, -0.2, 0));
     });
 
@@ -365,6 +390,10 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       visor.rotation.x = 0.18 * back;
       H.add(visor);
       H.add(mesh(new THREE.SphereGeometry(0.03, 6, 4), M.hat, 0, 0.33, 0));
+      if (deliveryGear.includes('cap')) {
+        const logo = createDeliveryDecal(.11, .057);
+        if (logo) { logo.position.set(0, .16, .27); logo.rotation.x = -.3; H.add(logo); }
+      }
     } else if (L.cabeza === 'sombrero') {
       H.add(mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.03, 24), M.hat, 0, 0.13, 0));
       H.add(mesh(new THREE.CylinderGeometry(0.22, 0.27, 0.22, 20), M.hat, 0, 0.25, 0));
@@ -647,6 +676,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     const groundSupport = Math.max(support(pose.legL, pose.kneeL), support(pose.legR, pose.kneeR));
     hips.position.y = detached ? .52 : lerp(groundSupport, .52, pose.lie);
     body.rotation.x = -pose.lie * Math.PI / 2;
+    hips.rotation.z = 0;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
     if (cycling) {
@@ -680,16 +710,30 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       }
     } else if (seatedBench) {
       const scale = root.scale.y || 1.15;
-      hips.position.set(0, .45 / scale + .06, -.05 / scale);
-      torso.rotation.set(benchRest ? .25 : -.03, 0, 0);
-      head.rotation.set(benchRest ? .4 : .04, 0, 0);
+      const rest = benchRest ? benchSleepFrame(movement.benchSleep?.progress ?? 1) : null;
+      const entry = movement.benchSleep?.weight ?? 1;
+      const seatY = ((rest?.hipY ?? .55) - .1) / scale + .06;
+      hips.position.set((rest?.hipX ?? 0) / scale, lerp(groundSupport, seatY, entry), (rest?.hipZ ?? -.05) * entry / scale);
+      hips.rotation.z = rest?.roll ?? 0;
+      torso.rotation.set(-.03, 0, 0);
+      head.rotation.set(.04 + (rest?.lie ?? 0) * .12, 0, 0);
       body.position.set(0, 0, 0); body.rotation.set(0, 0, 0);
       for (let i = 0; i < 2; i++) {
         const sign = i === 0 ? 1 : -1;
-        cycleTarget.set(sign * .13, .05 * scale, .32).divideScalar(scale).sub(hips.position);
+        cycleTarget.set(sign * lerp(.1, .13, entry), .05 * scale, lerp(0, .32, entry));
+        if (rest) {
+          cycleTarget.lerp(cycleGround.set(.63 + sign * .025, .545 + sign * .035, .05 - sign * .06), rest.legs);
+          cycleTarget.y += .13 * Math.sin(rest.legs * Math.PI);
+        }
+        cycleTarget.divideScalar(scale).sub(hips.position).applyQuaternion(cycleQ.copy(hips.quaternion).invert());
         cycleLimb(legs[i].hip, legs[i].knee, .24, .24, cycleTarget, sign);
         legs[i].foot.quaternion.copy(legs[i].hip.quaternion).multiply(legs[i].knee.quaternion).invert();
-        cycleTarget.set(sign * (benchRest ? .07 : .16), -.03, benchRest ? .2 : .25);
+        cycleTarget.set(sign * lerp(.25, .16, entry), -.03, lerp(.04, .25, entry));
+        if (rest) {
+          cycleGround.set(rest.gripX + sign * .138, rest.gripY, rest.gripZ - .025).divideScalar(scale).sub(hips.position)
+            .applyQuaternion(cycleQ.copy(hips.quaternion).invert());
+          cycleTarget.lerp(cycleGround, rest.reach);
+        }
         cycleQ.copy(torso.quaternion).invert(); cycleTarget.applyQuaternion(cycleQ);
         cycleLimb(arms[i].shoulder, arms[i].elbow, .21, .24, cycleTarget, sign);
       }
@@ -700,14 +744,14 @@ export function createCharacter(initial = DEFAULT_LOOK) {
 
     // parpadeo
     blink -= dt;
-    const closed = blink < 0.12 || pose.lie > .7;
+    const closed = blink < 0.12 || pose.lie > .7 || benchRest && movement.benchSleep?.progress > .82;
     if (blink < 0) blink = 2 + Math.random() * 3;
     for (const e of eyes) e.scale.y = closed ? 0.12 : 1;
 
     const s = 0.7 + Math.min(1, load) * 0.7;
     sack.scale.set(s, s * 1.15, s * 0.85);
-    sack.visible = load > 0.02;
-    M.top.color.set(PALETTES.ropa[look.arribaColor]).multiplyScalar(1 - dirt * 0.35 - wet * 0.15);
+    sack.visible = load > 0.02 && !deliveryBag?.visible;
+    M.top.color.set(deliveryGear.includes('jacket') ? DELIVERY_COLORS.red : PALETTES.ropa[look.arribaColor]).multiplyScalar(1 - dirt * 0.35 - wet * 0.15);
   }
 
   return {
@@ -718,7 +762,9 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     get sleepWeight() { return pose.lie; },
     setLook(l) {
       look = normalizeLook(l);
+      deliveryGear = l?.deliveryGear ?? [];
       build();
+      syncDeliveryBag();
     },
     setSmoking,
     setBasuco,

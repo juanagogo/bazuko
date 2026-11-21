@@ -30,7 +30,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'perro',
     title: 'Compañero fiel',
-    desc: 'Atiende a El Chato (dale comida o acarícialo).',
+    desc: 'Atienda a El Chato. Dele comida o acarícielo.',
     target: 1,
     icon: 'dog',
     reward: { dinero: 1000, xp: 25, animo: 20 }
@@ -54,7 +54,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'limosna',
     title: 'La moneda de la suerte',
-    desc: 'Pide limosna exitosamente 2 veces.',
+    desc: 'Consiga limosna dos veces.',
     target: 2,
     icon: 'hand',
     reward: { dinero: 2000, xp: 25, animo: 15 }
@@ -62,7 +62,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'crafteo',
     title: 'Artesano de la calle',
-    desc: 'Fabrica un objeto útil en la mesa de trabajo.',
+    desc: 'Fabrique un objeto útil en la mesa de trabajo.',
     target: 1,
     icon: 'hammer',
     reward: { dinero: 2500, xp: 35, animo: 10 }
@@ -70,7 +70,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'noche',
     title: 'Pasar la noche',
-    desc: 'Descansa en el cambuche, el hogar de paso, una residencia o una banca.',
+    desc: 'Descanse en el cambuche, el hogar de paso, una residencia o una banca.',
     target: 1,
     icon: 'tent',
     reward: { dinero: 2500, xp: 30, animo: 20 }
@@ -106,6 +106,7 @@ export class DailyMissionSystem {
     this.game = game;
     this.currentDay = 1;
     this.missions = [];
+    this.completedTypes = new Set();
     this._listeners = [];
 
     this._setupListeners();
@@ -198,7 +199,7 @@ export class DailyMissionSystem {
 
   /** Notifica avance en misiones del tipo especificado */
   reportProgress(type, amount = 1) {
-    if (!this.missions || this.missions.length === 0) return;
+    if (this.game?.deliveries?.ready || !this.missions?.length) return;
     let changed = false;
 
     for (const m of this.missions) {
@@ -219,6 +220,7 @@ export class DailyMissionSystem {
 
   _onMissionCompleted(mission) {
     mission.claimed = true;
+    this.completedTypes.add(mission.type);
     const stats = this.game?.stats;
     const reward = mission.reward;
 
@@ -232,19 +234,20 @@ export class DailyMissionSystem {
 
     if (typeof window !== 'undefined') {
       const rewardText = reward.dinero ? ` +${cop(reward.dinero)}` : '';
-      const xpText = reward.xp ? ` +${reward.xp} XP` : '';
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
-          text: `¡Misión cumplida: ${mission.title}! Recompensa:${rewardText}${xpText}`,
+          text: `¡Misión cumplida: ${mission.title}! Recompensa:${rewardText}`,
           type: 'rare'
         }
       }));
       window.dispatchEvent(new CustomEvent('mission-completed', { detail: { mission } }));
     }
+    if (this.game?._running) this.game._save();
   }
 
   /** Reclamar recompensa si no fue reclamada */
   claimReward(missionId) {
+    if (this.game?.deliveries?.ready) return false;
     const m = this.missions.find(x => x.id === missionId);
     if (!m || !m.completed || m.claimed) return false;
     this._onMissionCompleted(m);
@@ -260,7 +263,7 @@ export class DailyMissionSystem {
       this.missions = this.generateMissions(day);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('daily-missions-reset', { detail: { day, missions: this.missions } }));
-        window.dispatchEvent(new CustomEvent('toast', {
+        if (!this.game?.deliveries?.ready) window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Nuevas misiones diarias del Día ${day}`, type: 'info' }
         }));
         window.dispatchEvent(new CustomEvent('missions-updated', { detail: { missions: this.missions } }));
@@ -270,18 +273,20 @@ export class DailyMissionSystem {
 
   /** Texto corto para la barra de misión del HUD */
   get activeMissionText() {
-    if (!this.missions || this.missions.length === 0) return null;
+    if (this.game?.deliveries?.ready || !this.missions?.length) return null;
     const pending = this.missions.find(m => !m.completed);
     if (pending) {
       const prog = pending.target > 1 ? ` (${pending.progress}/${pending.target})` : '';
-      return `MISIÓN: ${pending.title.toUpperCase()}${prog} · ${cop(pending.reward.dinero)}`;
+      return `MISIÓN: ${pending.title.toUpperCase()}${prog} — ${cop(pending.reward.dinero)}`;
     }
     return 'MISIONES DEL DÍA COMPLETADAS';
   }
 
   serialize() {
+    const completedTypes = new Set([...this.completedTypes, ...this.missions.filter(m => m.completed).map(m => m.type)]);
     return {
       currentDay: this.currentDay,
+      completedTypes: [...completedTypes],
       missions: this.missions.map(m => ({ ...m }))
     };
   }
@@ -295,5 +300,9 @@ export class DailyMissionSystem {
       this.missions = this.generateMissions(this.currentDay);
     }
     this._ensureDailyMissions();
+    const knownTypes = new Set(MISSION_TEMPLATES.map(template => template.type));
+    const history = Array.isArray(data.completedTypes) ? data.completedTypes : [];
+    const today = this.missions.filter(mission => mission.completed).map(mission => mission.type);
+    this.completedTypes = new Set([...history, ...today].filter(type => knownTypes.has(type)));
   }
 }

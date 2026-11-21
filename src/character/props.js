@@ -5,6 +5,7 @@
 // Mixamo, así siguen la animación.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { DELIVERY_COLORS } from './deliveryLook.js';
 
 const CROOK = 0.055;
 const SHAFT = 0.9;
@@ -145,6 +146,70 @@ function backpack(wear) {
   return { bone: 'Spine2', object: group, space: 'body' };
 }
 
+export function createDeliveryBag() {
+  const bag = new THREE.Group();
+  bag.name = 'prop-maletin-domicilios';
+  const fabric = new THREE.MeshStandardMaterial({ color: DELIVERY_COLORS.red, roughness: .9 });
+  const trim = new THREE.MeshStandardMaterial({ color: DELIVERY_COLORS.dark, roughness: .85 });
+  const panel = new THREE.MeshStandardMaterial({ color: DELIVERY_COLORS.reflective, roughness: .42 });
+  const add = (w, h, d, y, z, material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(0, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    bag.add(mesh);
+  };
+  add(.37, .36, .25, 0, 0, fabric);
+  add(.38, .028, .26, .14, 0, trim);
+  add(.371, .027, .251, -.103, 0, panel);
+  const logo = createDeliveryDecal(.23, .12);
+  if (logo) {
+    logo.position.set(0, .02, -.126);
+    logo.rotation.y = Math.PI;
+    bag.add(logo);
+  }
+  return bag;
+}
+
+let deliveryPrint;
+export function deliveryDecalTexture() {
+  if (typeof document === 'undefined') return null;
+  if (!deliveryPrint) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = 'italic 900 64px Georgia, serif';
+    ctx.fillText('Rappi', 128, 72);
+    ctx.beginPath();
+    ctx.moveTo(128, 92);
+    ctx.bezierCurveTo(102, 72, 103, 107, 63, 96);
+    ctx.bezierCurveTo(82, 122, 112, 119, 128, 104);
+    ctx.bezierCurveTo(144, 119, 174, 122, 193, 96);
+    ctx.bezierCurveTo(153, 107, 154, 72, 128, 92);
+    ctx.fill();
+    deliveryPrint = new THREE.CanvasTexture(canvas);
+    deliveryPrint.colorSpace = THREE.SRGBColorSpace;
+  }
+  return deliveryPrint;
+}
+
+export function createDeliveryDecal(width, height) {
+  const texture = deliveryDecalTexture();
+  if (!texture) return null;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height),
+    new THREE.MeshStandardMaterial({ map: texture, alphaTest: .4, roughness: .8, polygonOffset: true, polygonOffsetFactor: -1 }));
+  mesh.userData.ownsMaterial = true;
+  return mesh;
+}
+
+function deliveryBackpack() {
+  const object = createDeliveryBag();
+  object.position.set(0, -.11, -.21);
+  return { bone: 'Spine2', object, space: 'body' };
+}
+
 // ---------- pasamontañas y gorra ----------
 // En el espacio del personaje con origen en el hueso Head (mira a +Z). La cabeza va de ~-0,06 (mentón)
 // a +0,17 (coronilla) sobre el hueso, y los ojos quedan a ~+0,03, adelante.
@@ -208,7 +273,22 @@ function cap() {
   return { bone: 'Head', object: group, space: 'body' };
 }
 
-const BUILDERS = { baston: cane, mochila: backpack, pasamontanas: balaclava, gorra: cap };
+function deliveryCap() {
+  const g = headGeometries();
+  const material = new THREE.MeshStandardMaterial({ color: DELIVERY_COLORS.red, roughness: .85 });
+  const object = new THREE.Group();
+  object.name = 'prop-gorra-domicilios';
+  object.add(new THREE.Mesh(g.crown.clone(), material), new THREE.Mesh(g.brim.clone(), material));
+  const logo = createDeliveryDecal(.074, .038);
+  if (logo) {
+    logo.position.set(0, .185, .154);
+    logo.rotation.x = -.32;
+    object.add(logo);
+  }
+  return { bone: 'Head', object, space: 'body' };
+}
+
+const BUILDERS = { baston: cane, mochila: backpack, pasamontanas: balaclava, gorra: cap, deliveryBackpack, deliveryCap };
 /** Accesorios baratos que también lleva el modelo lejano (se notan a distancia) */
 export const FAR_ACCESSORIES = new Set(['pasamontanas', 'gorra', 'maletin', 'bolsa', 'bolso', 'morral', 'costal', 'casco', 'baston-calle']);
 

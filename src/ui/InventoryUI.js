@@ -332,6 +332,7 @@ export class InventoryUI {
     const s = this.inv.slots[this.selected];
     if (!s) return;
     const def = ITEMS[s.id];
+    if (def?.deliveryGear) return;
     const n = this.inv.removeAt(this.selected, all ? s.qty : 1);
     if (!n) return;
     this.game.audio?.play?.('empty');
@@ -370,6 +371,7 @@ export class InventoryUI {
     const before = this.inv.count(id);
     if (before <= 0) return;
     this.game.hud._useItem(id, this.inv);
+    if (this.isOpen && ITEMS[id]?.deliveryGear) this._renderDetail();
     if (this.isOpen && this.inv.count(id) < before) this._feedback('just-used');
   }
 
@@ -467,7 +469,9 @@ export class InventoryUI {
     const s = inv.slots[this.selected];
     const hk = s ? inv.hotbar.indexOf(s.id) : -1;
     const vida = s ? slotLife(s, this.game?.totalGameHours) : null;
-    const key = s ? `${s.id}:${s.qty}:${inv.hotbar.join(',')}:${vida?.texto ?? ''}` : '';
+    const equipment = s && ITEMS[s.id]?.deliveryGear;
+    const equipped = equipment && this.game.deliveries?.equipped.includes(equipment);
+    const key = s ? `${s.id}:${s.qty}:${inv.hotbar.join(',')}:${vida?.texto ?? ''}:${equipped ?? ''}` : '';
     if (key === this._cache.detail) return;
     const sameItem = (this._cache.detail ?? '').split(':')[0] === (s?.id ?? '');
     this._cache.detail = key;
@@ -487,16 +491,16 @@ export class InventoryUI {
     this.dRarity.textContent = def ? rarityText(s.id) : '';
     this.dEffect.textContent = def ? itemEffectLine(def, { weight: false, fallback: false }) : '';
     this.dNote.textContent = def ? itemNote(def) : 'Elija un objeto del costal.';
-    this.dMeta.textContent = def
+    this.dMeta.textContent = equipment ? (equipped ? 'Puesto' : 'Guardado') : def
       ? `${kilos(def.weight)} kg, ${cop(def.value)}${s.qty > 1 ? `, en total ${cop(def.value * s.qty)}` : ''}${vida?.texto ? `. ${vida.texto[0].toUpperCase()}${vida.texto.slice(1)}` : ''}`
       : '';
     this.dReason.textContent = !def ? '' : usable ? '' : idleReason(def);
 
     this.btnUse.hidden = !!def && !usable;
     this.btnUse.disabled = !usable;
-    this.useLabel.textContent = useVerb(def);
-    this.btnDrop1.disabled = !def;
-    this.btnDropAll.disabled = !def;
+    this.useLabel.textContent = equipment ? (equipped ? 'Quitar' : 'Poner') : useVerb(def);
+    this.btnDrop1.disabled = !def || !!equipment;
+    this.btnDropAll.disabled = !def || !!equipment;
     for (let i = 0; i < this.hotEls.length; i++) {
       const b = this.hotEls[i];
       const bound = inv.hotbar[i];

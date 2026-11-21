@@ -273,17 +273,23 @@ export class TrafficSystem {
 
   /**
    * Un carro parado mucho rato fuera de la vista se retira y la flota manda otro a un tramo libre. Los trancones que el
-   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar.
+   * jugador ve se quedan. Las patrullas conservan su turno y vuelven a un tramo libre fuera de la vista.
    */
   _clearStuck(dt) {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
-      this._retire(vehicle);
-      return; // uno por cuadro, para que la retirada se note como el resto del montaje
+      if (vehicle.police) {
+        if (!this._forceRejoin(vehicle, safeSq)) continue;
+        this._releaseReservations(vehicle);
+        vehicle.stoppedFor = 0;
+      } else {
+        this._retire(vehicle);
+      }
+      return; // un vehículo por cuadro
     }
   }
 
@@ -476,13 +482,15 @@ export class TrafficSystem {
    * a su carril en el primer punto libre, sin cruce, vehículos ni personas cerca. A la vista del jugador espera más y
    * busca un punto lejos de él. Si no lo hay en toda la ruta, sigue esperando.
    */
-  _forceRejoin(vehicle) {
+  _forceRejoin(vehicle, minViewDistanceSq = 0) {
     const overdue = vehicle._rejoinStuck > REJOIN_SEEN_TIMEOUT || this._blocksBus(vehicle);
     if (!overdue && this._playerWithin(vehicle.car.position, REJOIN_SEEN_RADIUS)) return false;
     const { route } = vehicle, point = this._position;
     let distance = vehicle.distance;
     for (let walked = 0; walked < route.length; walked += 3, distance = (distance + 3) % route.length) {
       route.sample(distance, point, this._direction);
+      const dx = point.x - this._viewPosition.x, dz = point.z - this._viewPosition.z;
+      if (dx * dx + dz * dz < minViewDistanceSq) continue;
       if ((!overdue && this._playerWithin(point, REJOIN_SEEN_RADIUS)) || this._nearNode(point) || this._personNear(point) ||
         this._vehicleNear(point, vehicle, this.vehicles) || this._vehicleNear(point, vehicle, this.parkedCars) ||
         this._vehicleNear(point, vehicle, this.busVehicles)) continue;

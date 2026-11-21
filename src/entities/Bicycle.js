@@ -225,11 +225,16 @@ export class Bicycle {
     player.velocity?.set(0, 0, 0);
     player.speed = 0;
     player.root.rotation.x = player.root.rotation.z = 0;
+    if (player.character) {
+      player.character.group.rotation.x = player.character.group.rotation.z = 0;
+      player.character.group.position.y = 0;
+    }
     if (this.status === 'rented') this.status = 'parked';
     this.speed = this._driveSpeed = 0;
     this.lookBack = this._reverseHold = 0;
     this.supportFoot = this.reverseFoot = this.reversePhase = this.driveInput = 0;
     this.visual.rotation.set(0, 0, 0);
+    this.visual.position.y = 0;
     return true;
   }
 
@@ -280,6 +285,31 @@ export class Bicycle {
     for (const pedal of this._visual.pedals) pedal.rotation.x = -this.pedalPhase;
     const lean = -this.steerAngle * Math.min(.6, Math.abs(this.speed) / 10);
     this.visual.rotation.z += (lean - this.visual.rotation.z) * (1 - Math.exp(-8 * dt));
+  }
+
+  alignToSlope(dt, position, groundHeight, surface, grounded) {
+    let pitch = 0;
+    let lift = 0;
+    if (grounded && typeof groundHeight === 'function') {
+      const halfBase = BICYCLE.wheelbase / 2;
+      const dx = Math.sin(this.group.rotation.y) * halfBase;
+      const dz = Math.cos(this.group.rotation.y) * halfBase;
+      const context = { from: position, grounded: true, surface };
+      const wheelHeight = (x, z) => {
+        const sample = groundHeight(x, z, context);
+        const height = typeof sample === 'number' ? sample : sample?.height;
+        // Al asomarse por un borde, la rueda conserva la capa de apoyo del ciclista.
+        if (sample?.layer && sample.layer !== surface?.layer || Math.abs(height - position.y) > .6) return position.y;
+        return Number.isFinite(height) ? height : position.y;
+      };
+      const front = wheelHeight(position.x + dx, position.z + dz);
+      const rear = wheelHeight(position.x - dx, position.z - dz);
+      pitch = -Math.atan2(front - rear, BICYCLE.wheelbase);
+      lift = (front + rear) / 2 - position.y;
+    }
+    const blend = 1 - Math.exp(-20 * dt);
+    this.visual.rotation.x += (pitch - this.visual.rotation.x) * blend;
+    this.visual.position.y += (lift - this.visual.position.y) * blend;
   }
 
   update(dt, player) {

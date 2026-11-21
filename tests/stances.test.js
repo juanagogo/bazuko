@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { bakeStances, STANCE_NAMES } from '../src/character/stances.js';
+import { benchSleepFrame } from '../src/character/BenchSleep.js';
 import { BodyLanguage } from '../src/character/BodyLanguage.js';
 import { bakeGaitFamily, buildGaitSources } from '../src/character/gaitFamilies.js';
 import { createSkinSupport } from '../src/character/mixamoGrounding.js';
@@ -135,7 +136,7 @@ test('las posturas bajas descansan en el piso sin atravesarlo; en la banca los p
     const { root, bones, hold } = standing(baked);
     const support = createSkinSupport(root);
     const hips = [...bones.values()].find(bone => /Hips$/.test(bone.name));
-    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03], ['dormir-banca', -.01, .03]]) {
+    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03], ['dormir-banca', .37, .52]]) {
       hold(stance);
       const low = support.minimumY();
       assert.ok(low > min && low < max, `${id}/${stance}: lo más bajo a ${low.toFixed(3)} m`);
@@ -146,24 +147,22 @@ test('las posturas bajas descansan en el piso sin atravesarlo; en la banca los p
   }
 });
 
-test('dormir en la banca conserva asiento y pies; cabeza baja y manos descansan en el regazo', async () => {
+test('al dormir en la banca la cabeza baja a un lado, los pies suben y ambas manos alcanzan el periódico', async () => {
   for (const id of BODIES) {
     const { root, bones, hold } = standing(await library(id));
     const position = end => [...bones.values()].find(b => b.name.endsWith(end)).getWorldPosition(new THREE.Vector3());
     hold('banca');
-    const hips = position('Hips'), left = position('LeftFoot'), right = position('RightFoot'), head = position('Head');
-    const headBone = [...bones.values()].find(b => b.name.endsWith('Head'));
-    const headDirection = headBone.getWorldQuaternion(new THREE.Quaternion());
+    const head = position('Head');
     hold('dormir-banca');
-    assert.ok(position('Hips').distanceTo(hips) < .00001, id);
-    assert.ok(position('LeftFoot').distanceTo(left) < .00001, id);
-    assert.ok(position('RightFoot').distanceTo(right) < .00001, id);
-    assert.ok(position('Head').y < head.y - .015, `${id}: recoge la cabeza`);
-    assert.ok(headBone.getWorldQuaternion(new THREE.Quaternion()).angleTo(headDirection) > .3, `${id}: mira hacia el regazo`);
-    for (const side of ['Left', 'Right']) {
-      const hand = position(`${side}Hand`), knee = position(`${side}Leg`);
-      assert.ok(Math.abs(hand.x) < .13, `${id}: mano en el regazo`);
-      assert.ok(hand.y > knee.y && hand.y < hips.y + .25, `${id}: altura de mano ${hand.y}`);
+    assert.ok(position('Head').y < head.y - .35, `${id}: baja la cabeza`);
+    assert.ok(position('Head').x < -.31, `${id}: se recuesta hacia el lado`);
+    const frame = benchSleepFrame(1);
+    for (const [side, sign] of [['Left', 1], ['Right', -1]]) {
+      const foot = position(`${side}Foot`).multiplyScalar(1.08);
+      const hand = position(`${side}Hand`).multiplyScalar(1.08);
+      assert.ok(foot.x > .52 && foot.x < .78 && foot.y > .48 && foot.y < .7, `${id}: pie ${side} en ${foot.toArray()}`);
+      const edge = new THREE.Vector3(frame.gripX + sign * .138, frame.gripY, frame.gripZ - .025);
+      assert.ok(hand.distanceTo(edge) < .085, `${id}: mano ${side} en ${hand.toArray()}`);
     }
     assert.deepEqual(root.position.toArray(), [0, 0, 0]);
   }

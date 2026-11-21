@@ -46,6 +46,8 @@ test('el radar dice qué hacer, con precio y a la vista, y con el dedo sin tecla
     g.clock.hour = 12;
     g.stats.calor = 200;
     Object.assign(g.stats, { sed: 8, hambre: 90, energia: 90, salud: 90, dinero });
+    g.lastComedorHour = g.totalGameHours;
+    g._poiCache = null;
     g.inventory.clear();
   }, dinero);
   const sed = () => conSed(90000);
@@ -396,7 +398,7 @@ test('la plata se mueve de verdad: vender sube, comprar baja, armar gasta', asyn
     g.stats.dinero = 90000;
     (await import(menus)).openShop(g);
   }, menus);
-  await page.getByRole('button', { name: 'Comprar', exact: true }).first().click();
+  await page.locator('.row').filter({ hasText: /^Pan\b/ }).getByRole('button', { name: 'Comprar', exact: true }).click();
   expect(await plata()).toBeLessThan(90000);
   await page.evaluate(() => window.__game.menu.close());
 
@@ -414,18 +416,27 @@ test('la plata se mueve de verdad: vender sube, comprar baja, armar gasta', asyn
   expect(queda[1]).toBe(true);
 });
 
-test('quieto, en la página casi no se escribe nada: se compara antes de escribir', async ({ page }) => {
+test('quieto, el HUD evita escrituras repetidas incluso con malilla', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);
+  // Establece un clima tranquilo para medir escrituras repetidas de la interfaz.
+  await page.evaluate(() => {
+    const game = window.__game;
+    game.clock.hour = 12;
+    game.weather.setWeather('soleado', false);
+  });
   const escrituras = () => page.evaluate(async () => {
     let n = 0;
     const quien = {};
     const o = new MutationObserver((m) => {
       for (const r of m) {
+        // Las frases siguen a los peatones en movimiento aunque el jugador esté quieto.
+        const elemento = r.target instanceof Element ? r.target : r.target.parentElement;
+        if (elemento?.closest('#npc-bubbles-container')) continue;
         const clave = r.target?.id || r.target?.className || r.target?.parentElement?.id || r.type;
         quien[clave] = (quien[clave] ?? 0) + 1;
+        n++;
       }
-      n += m.length;
     });
     o.observe(document.body, { attributes: true, childList: true, subtree: true, characterData: true });
     await new Promise((f) => setTimeout(f, 4000));

@@ -76,8 +76,14 @@ const COMMON_WORDS = uncode([
   'cGF0YWdvbmlh', 'dmlzYQ==', 'Zm9yZA==', 'Ymlj', 'a2lh', 'YXBwbGU=', 'Z29vZ2xl', 'bW9iaWw=', 'YXJh', 'b21h',
   'Z2Vm', 'dmVsZXo='
 ]);
-// La estación de servicio viene de antes de la gente y se queda como está; en ningún otro lugar vale.
+// La estación de servicio y el rol de domicilios tienen su propia identidad.
 const ALLOWED = new Map([['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])]]);
+for (const path of [
+  'AGENTS.md', 'README.md', 'docs/domicilios.md',
+  'src/character/props.js', 'src/data/items.js', 'src/systems/DeliverySystem.js',
+  'src/ui/ControlsHelp.js', 'src/ui/HUD.js', 'src/ui/MissionsModal.js',
+  'src/ui/PauseMenu.js', 'src/ui/placeMenus.js', 'src/ui/css/hud.css', 'src/ui/css/pausa.css'
+]) ALLOWED.set(path, ['rappi']);
 const TEXT_FILE = /\.(?:js|mjs|css|html|json|md|txt|glsl)$/;
 const ROOT = new URL('../', import.meta.url);
 

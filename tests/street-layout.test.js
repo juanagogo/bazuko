@@ -62,7 +62,7 @@ test('cargar y volver a guardar una partida migra su ubicación una sola vez', (
   let data={player:{pos:original},stats:{},clock:{},inventory:{}};
   const serializable={deserialize(){},serialize(){return {};}};
   const game=Object.assign(Object.create(Game.prototype),{
-    world:{active:city},player:{position:new THREE.Vector3()},
+    world:{active:city},player:{position:new THREE.Vector3()},bicycles:[],bikeStations:[],
     save:{load:()=>data,save:state=>{data=state;}},
     stats:serializable,clock:serializable,inventory:serializable,talents:serializable,diseases:serializable
   });

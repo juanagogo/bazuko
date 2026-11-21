@@ -261,6 +261,7 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 #controls-help:not(.is-collapsed) { z-index: 116; } /* La guía abierta queda sobre el cartel del barrio. */
 #controls-help-content span { display: flex; align-items: center; gap: 6px; }
 #controls-help-content kbd { flex: none; }
+#controls-help-rappi { grid-column: 1 / -1; justify-self: start; max-width: 100%; }
 
 /* ---------- lo que está pasando ---------- */
 #movement-status {
@@ -564,7 +565,8 @@ body.mando kbd:not([data-k], .cx kbd, #steal-ayuda kbd) { display: none; }
 }
 
 @media (max-width: 480px) and (pointer: fine) {
-  #controls-help { bottom: calc(158px + var(--safe-b)); }
-  #panel-dock { grid-template-columns: 1fr; width: min(210px, calc(100vw - 16px)); }
+  #controls-help { bottom: calc(208px + var(--safe-b)); }
+  #controls-help-content { max-height: min(62vh, calc(100dvh - 266px), 430px); }
+  #panel-dock { bottom: calc(58px + var(--safe-b)); grid-template-columns: 1fr; width: min(210px, calc(100vw - 16px)); }
   #panel-dock .dock-btn.cinta { justify-content: space-between; }
 }

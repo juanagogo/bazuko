@@ -271,6 +271,7 @@ export class Npc {
     // Quien se queda en su sitio toda la partida: `out` mientras anda por ahí después de un susto.
     // `toRest`: va a donde esperar, no de vuelta. `reach`: m que puede salirse de la red al llegar.
     this.fijo = opts.fijo ? {
+      benchSeat: opts.fijo.benchSeat ?? null,
       stance: opts.fijo.stance, alternas: opts.fijo.alternas ?? null, facing: this.root.rotation.y, low, techo: !!opts.fijo.techo,
       reach: opts.fijo.reach ?? 0, out: false, returnIn: 0, fails: 0, pareja: null, toRest: false, dodging: false,
       nextPose: CONDUCT.alternateMin + Math.random() * CONDUCT.alternateExtra
@@ -669,7 +670,8 @@ export class Npc {
     if (!fijo?.out || fijo.toRest || !player) return false;
     if (Math.hypot(this.position.x - this.home.x, this.position.z - this.home.z) > CONDUCT.spotStep) return false;
     if (navigation?.nodes?.[navigation.nodeAt(this.position.x, this.position.z)]?.crossing) return false; // en un cruce no se espera
-    return Math.hypot(player.x - this.home.x, player.z - this.home.z) < CONDUCT.spotTaken;
+    const clearance = fijo.benchSeat ? .55 : CONDUCT.spotTaken;
+    return Math.hypot(player.x - this.home.x, player.z - this.home.z) < clearance;
   }
 
   /** Velocidad al andar: bajo la lluvia, quien no lleva paraguas apura el paso. */
@@ -905,8 +907,9 @@ export class Npc {
     if (this._noseCooldown > 0) this._noseCooldown -= dt;
     else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange
       && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance)) {
-      this._noseTimer = 2 + Math.random() * 2;
-      this._noseCooldown = this._noseTimer + 6 + Math.random() * 8;
+      const duration = 2 + Math.random() * 2;
+      this._noseTimer = this.person.nariz ? duration : 0;
+      this._noseCooldown = duration + 6 + Math.random() * 8;
       // Con mal olor, el peatón huye corriendo de la peste
       if (!this.isVendor) {
         this._fleeFrom(ctx.player);

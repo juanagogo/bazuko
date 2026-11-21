@@ -181,6 +181,10 @@ body.mojado :is(#menu, #inv-overlay, #craft-panel, #talent-panel, #dealer-panel)
 
 /* ---------- Controles ---------- */
 .pause-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 28px; align-items: start; }
+.pause-rappi-help { grid-column: 1 / -1; }
+.pause-rappi-help ol { padding-inline-start: 1.4em; }
+.pause-rappi-help li + li { margin-top: 4px; }
+.pause-rappi-help p { margin-block: 8px; }
 .pause-controls-list { list-style: none; display: grid; grid-template-columns: auto minmax(0, 1fr); }
 .pause-controls-list li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; gap: 10px; min-height: 40px; padding: 4px 0 8px; font-size: 16px; line-height: 1.12; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
 .pause-controls-list kbd { justify-self: start; width: max-content; font-size: 15px; }

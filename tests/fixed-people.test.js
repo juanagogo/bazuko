@@ -96,6 +96,7 @@ test('quien se sienta en una banca está en una banca, de frente y sobre el asie
     const bench = city.benchSpots.find(spot => Math.hypot(spot.x - npc.position.x, spot.z - npc.position.z) < .6);
     assert.ok(bench, `banca en ${npc.position.x}, ${npc.position.z}`);
     assert.equal(npc.root.rotation.y, bench.rot);
+    assert.equal(npc.fijo.benchSeat.spot, bench);
   }
   assert.ok(city.benchSpots.length >= 20, 'el distrito sabe dónde puso sus bancas');
 });
