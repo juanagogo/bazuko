@@ -105,7 +105,7 @@ export class StealSystem {
   // Encuentra el NPC más cercano y procesa las teclas de interacción E y Q.
   _checkProximity(npcs) {
     const playerPos = this.game?.player?.position;
-    if (!playerPos || this.game.paused || this.game.player?.isStunned) {
+    if (!playerPos || this.game.paused || this.game.player?.isStunned || this.game.interaction?.currentTargetType === 'delivery') {
       this.targetNpc = null;
       return;
     }

@@ -175,12 +175,16 @@ export class BodyLanguage {
    * @param {boolean} handsBusy   otra capa es dueña de las manos: pegar, fumar con pipa, señalar
    * @param {boolean} rising      se está parando del piso de afán: la postura baja se retira en RISE_TIME
    */
-  apply(dt, { stance = null, stanceWeight = 1, style = null, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, speed = 0, phase = 0, blocked = false, handsBusy = false, rising = false, bicycle = null } = {}) {
+  apply(dt, { stance = null, stanceWeight = 1, style = null, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, speed = 0, phase = 0, blocked = false, handsBusy = false, rising = false, bicycle = null, benchSleep = null } = {}) {
     this.bicycle = bicycle;
     const hasStyle = !!style && !blocked;
     // Aunque no haya nada que hacer, la orden se gasta: si no, la próxima postura entraría de un cuadro.
     const snap = this.snapNext;
     this.snapNext = false;
+    if (benchSleep && this.library.benchSleep) {
+      this._applyBenchSleep(benchSleep);
+      return;
+    }
     if (!stance && !this.layers.length && !hasStyle && this.styleWeight === 0 && this.carryWeight === 0 && ko <= 0) return;
     this.time += dt;
     const stepOf = seconds => (snap ? 1 : dt / seconds);
@@ -197,6 +201,22 @@ export class BodyLanguage {
     if (ko > 0) this._applyKnockout(ko, koRising, koPlan);
     if (styleWeight > 0) this._applyBodyStyle(style, styleWeight, phase, dt, snap);
     else if (this.stoopNow || this.headNow) { this.stoopNow = 0; this.headNow = 0; }
+  }
+
+  _applyBenchSleep({ progress, weight, finished }) {
+    const { bones, frames } = this.library.benchSleep;
+    this.benchSlots ??= bones.map(name => this._slot(name));
+    const sample = progress * (frames.length - 1);
+    const index = Math.min(frames.length - 2, Math.floor(sample));
+    const from = frames[index], to = frames[index + 1], blend = sample - index;
+    for (let i = 0; i < this.benchSlots.length; i++) {
+      const slot = this.benchSlots[i];
+      if (!slot) continue;
+      this._touch(slot);
+      slot.bone.quaternion.slerp(_alt.slerpQuaternions(from.q[i], to.q[i], blend), weight);
+    }
+    this._moveHip(this.bikeHip.lerpVectors(from.hip, to.hip, blend), weight);
+    if (finished) this.layers = [{ stance: this._resolve('banca'), weight: 1 }];
   }
 
   _applyStance(stance, stanceWeight, speed, retired, rising, ko, koFrom, dt, stepOf) {

@@ -63,6 +63,7 @@ export function piezasDelPrompt(texto) {
 export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
+  if (type === 'delivery') return interaction.deliveries.order?.pickedUp ? '[E] Entregar pedido' : '[E] Recoger pedido';
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
   if (type === 'car') {
     const car = interaction.currentTarget;
@@ -112,7 +113,11 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
-  if (type === 'bench') return `${interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca'} · [Q] Dormir gratis`;
+  if (type === 'bench') {
+    if (interaction.currentTarget?.playerSeated) return '[E] Levantarme de la banca · [Q] Dormir gratis';
+    if (interaction.player?.freeBenchSide?.(interaction.currentTarget) === null) return 'Banca ocupada';
+    return '[E] Sentarme en la banca · [Q] Dormir gratis';
+  }
   if (type === 'bicycle') {
     if (interaction.player?.bicycle === interaction.currentTarget) {
       const bike = interaction.currentTarget;
@@ -597,12 +602,14 @@ export class HUD {
       this._pintarFila(this.bars.olor, this.barValues?.olor, olor, 100, `${olor}%`, level);
       const filaOlor = this._rows?.olor;
       if (filaOlor) {
-        filaOlor.title = `Medidor de olor: ${olor}% (${olor >= 70 ? '¡Mal olor! Peatones huyen' : 'Aceptable'})`;
+        const title = `Medidor de olor: ${olor}% (${olor >= 70 ? '¡Mal olor! Peatones huyen' : 'Aceptable'})`;
+        if (filaOlor.title !== title) filaOlor.title = title;
       }
     }
     if (stats && this._rows?.higiene && (stats.olor !== undefined || stats.higiene !== undefined)) {
       const olor = Math.max(0, Math.min(100, Math.round(stats.olor ?? (100 - (stats.higiene ?? 100)))));
-      this._rows.higiene.title = `Higiene: ${Math.round(stats.higiene ?? 0)}/100 - Olor: ${olor}% (${olor >= 70 ? '¡Mal olor!' : 'Limpio'})`;
+      const title = `Higiene: ${Math.round(stats.higiene ?? 0)}/100 - Olor: ${olor}% (${olor >= 70 ? '¡Mal olor!' : 'Limpio'})`;
+      if (this._rows.higiene.title !== title) this._rows.higiene.title = title;
     }
     const filaVicio = this.bars?.vicio?.parentElement?.parentElement;
     if (filaVicio && stats?.abstinencia !== undefined) {
@@ -788,18 +795,21 @@ export class HUD {
       this._misionS = 0;
       return;
     }
-    let texto = textoDeMision(game?.built, inventory);
-    if (!texto && game?.dailyMissions?.activeMissionText) {
-      texto = game.dailyMissions.activeMissionText;
-    }
+    const ridingDelivery = game?.deliveries?.ready;
+    const secondsLeft = ridingDelivery ? game.deliveries.secondsLeft : null;
+    const timed = Number.isFinite(secondsLeft);
+    const texto = ridingDelivery
+      ? (timed ? `${secondsLeft > 0 ? cuentaAtras(secondsLeft) : 'SIN PROPINA'} — ENTREGAR PEDIDO`
+        : game.deliveries.objective ?? 'RAPPI — ABRA MISIONES (J) PARA ACEPTAR UN PEDIDO')
+      : (textoDeMision(game?.built, inventory) ?? game?.dailyMissions?.activeMissionText);
     // Cada cartón baja la cuenta, pero no es una misión nueva: no vuelve a salir por eso.
     const clave = texto?.replace(/\d+ CART\S+/, 'CARTONES') ?? null;
-    if (clave === this._misionTexto) return;
+    if (clave === this._misionTexto && !(timed && this.misionEl.hidden)) return;
     this._misionTexto = clave;
     if (!texto) { this.misionEl.hidden = true; this._misionS = 0; return; }
     this._setText(this.misionEl, texto);
     this.misionEl.hidden = false;
-    this._misionS = MISION_S;
+    this._misionS = timed ? 0 : MISION_S;
   }
 
   /** En la barra rápida, el círculo va en el arma que tengo en la mano. */
@@ -890,6 +900,10 @@ export class HUD {
     const game = window.__game;
     if (!game) return;
 
+    if (item.deliveryGear) {
+      if (!game.player?.isStunned) game.deliveries?.toggleGear(item.deliveryGear);
+      return;
+    }
 
     if (itemId === 'popo') {
       if (game.player?.isStunned) return;
@@ -916,7 +930,7 @@ export class HUD {
       game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
       game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
       game.audio?.play('pickup');
-      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      this._toast('Me puse ropa limpia (+30 higiene, +15 ánimo)', 'info');
       game.openWardrobe?.();
       return;
     }

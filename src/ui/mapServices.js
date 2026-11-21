@@ -227,7 +227,7 @@ export function placeMeta(poi, tag = null, needs = {}) {
   const { money = 0, night = false } = needs;
   if (poi.rest) {
     const rest = poi.rest;
-    if (rest.type === 'cambuche') return rest.status === 'build' ? 'Gratis, primero arma la base de cartón' : 'Gratis, tu refugio para descansar';
+    if (rest.type === 'cambuche') return rest.status === 'build' ? 'Gratis, primero arma la base de cartón' : 'Refugio gratis para descansar';
     if (rest.type === 'residencia') return `${cop(rest.price)} por ${rest.hours} h, abierto las 24 h${rest.price > money ? ', sin plata' : ''}`;
     const status = rest.status === 'closed' ? ', cerrado ahora' : rest.status === 'full' ? ', sin cupo esta noche' : ', hay cupo';
     return `Gratis, ingreso de ${hora(rest.opens)} a ${hora(rest.closes)}${status}`;

@@ -31,6 +31,8 @@ Imágenes reales del juego, tomadas en el navegador con el modelo liviano.
 
 Un hueco escondido en el cambuche. Sin base no hay caleta; cada pieza suma kilos (base 6, techo 3, paredes 8, colchón 3, fogón 2, vela 1). Lo guardado no se pierde al morir ni en un arresto. Sin paredes, cuando roban de noche, una de cada cuatro veces también encuentran la caleta y se llevan la mitad. La comida se sigue dañando adentro y las armas conservan su desgaste.
 
+El equipo de reparto se guarda en el costal. [Guía de domicilios](domicilios.md#comprar-y-equipar)
+
 ## Fama en la calle
 
 Dos valores de 0 a 100 que empiezan en 50:
@@ -68,7 +70,7 @@ Una puerta con reja y letrero contra una fachada. Se entra de 18:00 a 23:00 y ha
 
 La **Residencia El Descanso** tiene otra puerta, sobre un andén accesible y separada del hogar gratuito y las bicicletas. E abre su menú: cuesta $8.000 por 8 horas, a cualquier hora. Recupera 80 de energía, 20 de salud, 30 de ánimo y 25 de higiene. No incluye comida ni agua: ambas necesidades bajan 20. No retiene armas ni sustancias y no hay robo. El cobro ocurre solo al iniciar un descanso válido; abrir o cerrar el menú no cobra y repetir la acción mientras duerme tampoco.
 
-En una banca, **E** conserva sentarse y levantarse; **Q** abre el descanso gratuito de 3 horas. El personaje dormita sentado, con las manos en el regazo y los pies en el suelo; al despertar sigue sentado y puede levantarse con E o caminar. Recupera 25 de energía y 5 de ánimo; pierde 5 de higiene, 10 de hambre y 10 de sed. Hay un 25 % de riesgo de perder el 20 % del dinero que lleva. Las paredes del cambuche no lo protegen allí y ese robo no afecta a la caleta. No se duerme en una banca ocupada ni conduciendo una bicicleta.
+Cada banca de calle tiene dos plazas, una en cada extremo. Con **E** se ocupa la plaza libre más cercana o se levanta el jugador. Si las dos están ocupadas, aparece **Banca ocupada**. Con **Q** se abre el descanso gratuito de 3 horas, que requiere la banca entera libre de peatones. Al confirmar, el personaje recoge los pies sobre el asiento, se recuesta de lado y se cubre con un periódico. Al despertar retira el papel y vuelve a sentarse. Desde ahí puede levantarse con E o caminar. Recupera 25 de energía y 5 de ánimo y pierde 5 de higiene, 10 de hambre y 10 de sed. Hay un 25 % de riesgo de perder el 20 % del dinero que lleva. Las paredes del cambuche solo lo protegen allí y ese robo no afecta a la caleta.
 
 El mapa y el radar muestran **Hogar de paso (gratis)** con el dibujo de cama y la residencia con una **moneda**, su precio y duración. Los filtros **Cambuche**, **Residencias** y **Refugios** separan tu refugio propio, los alojamientos de pago y el hogar gratuito. Permanecen visibles al desplazar la lista; cada lugar indica si falta construir la base, está cerrado, no hay cupo o no alcanza el dinero. Todos permiten marcar una ruta peatonal. Dormir adelanta el reloj, renueva las misiones si cruza medianoche y guarda también la recompensa de descanso al despertar. La posición inicial de cada entrada al juego continúa siendo frente al cambuche.
 
@@ -76,6 +78,6 @@ El mapa y el radar muestran **Hogar de paso (gratis)** con el dibujo de cama y l
 
 - `tests/street-life.test.js`: la lógica de las nueve mecánicas y la tecla de contexto.
 - `tests/street-life-places.test.js`: sobre la ciudad completa, que pilas, hogar y estaciones caigan en suelo de peatón sin cajas encima, se alcancen a pie y salgan siempre en el mismo sitio.
-- `tests/rest.test.js`: cobro único, bloqueo por dinero y distancia, descanso gratuito, riesgos, guardado de misiones e iconos distintos para cada alojamiento. `tests/stances.test.js` comprueba el apoyo del cuerpo y las manos al dormitar en todos los cuerpos.
+- `tests/rest.test.js` cubre las dos plazas de la banca, los bloqueos de descanso, el cobro único, el riesgo de robo, el guardado de misiones y los iconos de alojamiento. `tests/stances.test.js` comprueba que la cabeza baja a un lado, los pies suben al asiento y las manos alcanzan el periódico en cada cuerpo.
 
 Son pruebas de lógica. Las ventanas, la tecla de contexto y los flujos completos (cuidar hasta el pago, viajar colado, dormir en el hogar, lavarse) se revisaron además en el navegador.

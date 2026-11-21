@@ -18,6 +18,10 @@
   .loot-toast { left: calc(6px + var(--safe-l)); max-width: calc(100vw - 12px); font-size: 16px; padding: 2px 9px 4px 7px; }
 }
 
+@media (max-width: 359px) and (orientation: portrait) {
+  .loot-toast { max-width: calc(40vw - 6px - var(--safe-l)); overflow-wrap: anywhere; }
+}
+
 /* Con un menú abierto el HUD se esconde pero conserva su caja: sin esto, la pila queda en medio del menú.
    Sube a lo que menos estorba, el título; si el menú tiene pestañas, justo debajo de ellas. */
 @media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {

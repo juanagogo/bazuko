@@ -184,9 +184,9 @@ test('Comedor Comunitario figura en _getPOIs y en los servicios del mapa como lu
     clock: { isNight: false }
   };
 
-  // Reutilizamos la lógica de _getPOIs
   const { Game } = await import('../src/core/game.js');
-  const pois = Game.prototype._getPOIs.call(game);
+  Object.setPrototypeOf(game, Game.prototype);
+  const pois = game._getPOIs(0);
 
   const comedorPoi = pois.find(p => p.name === 'Comedor Comunitario');
   assert.ok(comedorPoi, 'el Comedor Comunitario está en la lista de POIs del mapa');
@@ -199,4 +199,10 @@ test('Comedor Comunitario figura en _getPOIs y en los servicios del mapa como lu
   assert.equal(hasTag(comedorPoi, 'comida'), true);
   assert.equal(hasTag(comedorPoi, 'agua'), true);
   assert.match(placeMeta(comedorPoi), /Almuerzo caliente gratis cada 24 horas/);
+
+  game.lastComedorHour = game.totalGameHours;
+  const duringCooldown = game._getPOIs(351).find(p => p.name === comedorPoi.name);
+  assert.ok(duringCooldown, 'el comedor sigue en el mapa durante la espera');
+  assert.equal(hasTag(duringCooldown, 'comida'), false);
+  assert.equal(hasTag(duringCooldown, 'agua'), false);
 });

@@ -61,6 +61,8 @@ Entre 15 y 20 de los 80 peatones son fijos (`opts.fijo`, lista en `Bogota._fixed
 
 Al armar la ciudad, `PedestrianNavigation.cutSolidEdges` corta los tramos de andén que atraviesan una caja sólida a la altura del cuerpo: una columna, un muro bajo, una caja. Las bancas no tienen colisión, pero también se le pasan: nadie cruza por encima de una, y quien vuelve a la suya llega por el último tramo libre. Los tramos que tocan un cruce no se cortan, porque cambiarían por dónde se reparte la gente al cruzar y con eso el paso del bus; por ahí todavía se puede rozar una columna. Para añadir un fijo, `tests/fixed-people.test.js` comprueba que no quede en un cruce, en la calzada, dentro de un muro ni tapando un paso, y que pueda volver.
 
+`benchSeats.js` define dos plazas por banca. Cada peatón fijo que usa una guarda su banca y su lado en `fijo.benchSeat`. Si se asusta, deja libre la plaza cuando termina de apartarse. El jugador usa esos mismos puntos para elegir una plaza libre. [Descanso en bancas](vida-de-calle.md#residencia-y-bancas)
+
 La red solo une baldosas a menos de 0,6 m de desnivel, y eso vale también en los cruces: nadie sube de la calle a un tablero de un paso. El tablero del puente del lago es del bus. A pie se pasa por debajo, igual que bajo el resto del viaducto, y por eso los peatones miden el piso con `Bogota._pedestrianGround` y no con `getGroundHeight`, que debajo del puente da la cota de arriba. Sobre el agua no hay nodos, ni donde el tablero ya viene bajando y no cabe una persona, desde Z 304 hasta la orilla sur; el parque se cruza por debajo al norte y al sur del lago. Esos tramos sí los cortan los pilares, porque abajo no hay tráfico. El GPS y el jugador no cambian. Quien queda fuera de la red principal, el grupo más grande de nodos unidos (una banca, un rincón, un bolsillo suelto entre torres), sale a su nodo más cercano; los fijos siguen volviendo a su sitio por el último tramo libre.
 
 ## Retoques al armar el personaje
@@ -72,6 +74,10 @@ Estas piezas se ajustan al cargarlas, una vez por geometría compartida:
 - **Ropa.** Cada prenda necesita su fila en `GARMENTS` (`src/character/streetMaterials.js`) para poder recolorearse: `tests/street-clothes.test.js` falla si falta, y comprueba arriba y abajo en cada prenda de cada cuerpo, en los dos modelos.
 
 Algunas prendas se llevan peor con los tonos. Una `chaqueta` con patrón también lo pinta en la camisa de adentro, la `rayas` conserva sus rayas finas de textura aunque el tono sea liso, y el dobladillo de la `rota` tiene dientes de tela rota. La `sudadera` es una prenda corta que deja ver el vientre: como el `short` y la `rota`, ningún cuerpo joven la lleva.
+
+## Equipo de reparto del jugador
+
+`deliveryLook.js` compone la apariencia de reparto a partir de la ropa de calle y las piezas equipadas. El personaje realista, el procedural y la vista previa del creador usan esa apariencia. En el realista, el maletín se sujeta a `Spine2` y la gorra a `Head`. La chaqueta usa el patrón `reflectivo` de `streetMaterials.js`, con una textura de logo que comparte con los accesorios de reparto. [Compra y uso del equipo](domicilios.md#comprar-y-equipar)
 
 ## Sin marcas
 

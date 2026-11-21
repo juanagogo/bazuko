@@ -96,6 +96,12 @@ export const ITEMS = {
     consumable: 'higiene', amount: 30, animo: 15, usable: true,
     desc: 'Muda de ropa limpia donada. Usar: cambiarse de ropa para ganar higiene y ánimo.'
   },
+  maletinRappi: { id: 'maletinRappi', name: 'Maletín de Rappi', weight: 0, value: 0, usable: true, deliveryGear: 'bag',
+    desc: 'Póntelo para aceptar, recoger y entregar domicilios.' },
+  chaquetaRappi: { id: 'chaquetaRappi', name: 'Chaqueta de Rappi', weight: 0, value: 0, usable: true, deliveryGear: 'jacket',
+    desc: 'Chaqueta roja de reparto con cintas reflectivas.' },
+  gorraRappi: { id: 'gorraRappi', name: 'Gorra de Rappi', weight: 0, value: 0, usable: true, deliveryGear: 'cap',
+    desc: 'Gorra roja de reparto.' },
 
   // ===== CURAS =====
   vacuna: {
@@ -231,7 +237,7 @@ export function describeEffects(item) {
 
 /** La recicladora compra todo lo que no se come, no cura, no es sustancia ni sirve para construir */
 export const isRecyclable = (item) =>
-  !!item && !item.consumable && !item.cure && !item.substance && !item.build && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
+  !!item && !item.consumable && !item.cure && !item.substance && !item.build && !item.deliveryGear && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
 
 /** Lo que la recicladora o un ladrón se llevan del costal: todo lo reciclable menos el arma que el jugador tiene en la mano. */
 export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && !(item.weapon && item.weapon === equippedWeapon);
@@ -239,7 +245,8 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt'
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt',
+  maletinRappi: 'bag', chaquetaRappi: 'shirt', gorraRappi: 'shirt'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 

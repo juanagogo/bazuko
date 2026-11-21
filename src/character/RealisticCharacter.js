@@ -13,7 +13,7 @@ import { bakeGaitFamily, buildGaitSources, resolveGait } from './gaitFamilies.js
 import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
-import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
+import { attachAccessories, attachStreetProps, attachWeapon, deliveryDecalTexture, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
 import { garmentAllowed, normalizeTalla } from './archetypes.js';
 import { attachCigaretteToHand, emberGlow } from './smoking.js';
 import { attachBasucoProps } from './pipe.js';
@@ -369,7 +369,8 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
       applyStreetMaterial(mesh.material, mesh, {
         ...streetOptions,
         kind: p.cat === 'pelo' ? 'hair' : p.cat === 'barba' ? 'beard' : p.cat === 'calzado' ? 'shoes' : 'fabric',
-        ...(p.cat === 'ropa' ? { tonos: uniform ? null : real.tonos, garment: GARMENTS[real.ropa] } : null),
+        ...(p.cat === 'ropa' ? { tonos: uniform ? null : real.tonos, garment: GARMENTS[real.ropa],
+          deliveryLogo: look.deliveryGear?.includes('jacket') ? deliveryDecalTexture() : null } : null),
         ...(p.cat === 'calzado' && !uniform ? { leather: real.calzado === 'zapatos', shoeTone: real.tonos?.calzado } : null),
         ...(p.cat === 'pelo' && real.pelo === 'crespo' ? { curl: 1 } : null)
       });
@@ -398,6 +399,14 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   });
   const worn = (look.accesorios ?? []).filter((id) => !useLod || FAR_ACCESSORIES.has(id));
   const accessories = worn.length ? attachAccessories(root, bones, worn, wear) : null;
+  const deliveryProps = [];
+  if (look.deliveryGear?.includes('bag')) deliveryProps.push('deliveryBackpack');
+  if (look.deliveryGear?.includes('cap')) deliveryProps.push('deliveryCap');
+  const ownedGeometries = bodyMesh ? [bodyMesh.geometry] : [];
+  if (deliveryProps.length) {
+    const { objects } = attachAccessories(root, bones, deliveryProps);
+    for (const object of objects) object.traverse(mesh => { if (mesh.geometry) ownedGeometries.push(mesh.geometry); });
+  }
   const stanceLibrary = stancesForBody(body.id, bodyGltf);
   // Lo que carga la gente de la calle: de lejos solo lo que se nota.
   const streetProps = attachStreetProps(root, bones, (real.accesorios ?? []).filter((item) => !useLod || FAR_ACCESSORIES.has(item.id)), stanceLibrary?.holds, real.sexo);
@@ -439,7 +448,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   const hipBlend = groundContact || !hipBone ? null : new HipBlend(actions, hipBone);
   const bodyLanguage = stanceLibrary ? new BodyLanguage(bones, stanceLibrary, { lod, seed, lean: clips.walk?.userData.lean ?? 0 }) : null;
   // Cada uno empieza en otro punto del paso: dos que salen juntos no marchan al compás. El banco de revisión empieza siempre en su primer cuadro.
-  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries };
 }
 
 /** Bastón en la mano: al andar apoya en el piso y al correr se agarra por la mitad; el peso cambia sin saltos. */
@@ -707,6 +716,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       if (!inst.bodyLanguage) group.rotation.x = -ko * Math.PI / 2; // sin posturas horneadas, al menos se acuesta
       inst.bodyLanguage?.apply(dt, {
         stance, style: cycling ? null : style, stanceWeight, ko, koRising, koPlan, koFrom, rising, speed: gaitSpeed, phase: inst.phase, bicycle: movement.bicycle,
+        benchSleep: movement.benchSleep,
         blocked: handsBlocked || target === action || poseAction,
         handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
       });
@@ -718,7 +728,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
       if (!cycling) inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0 });
-      inst.groundContact?.apply(!detached && !cycling);
+      inst.groundContact?.apply(!detached && !cycling && !benchRest);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);
       inst.accessories?.update();

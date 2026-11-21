@@ -533,6 +533,9 @@ test('sin plata de noche: radar y mapa llevan al Dealer, E abre su tienda y solo
     game.inventory.clear();
     game.inventory.add(ITEMS.pegante, 1);
     game.inventory.add(ITEMS.hierba, 2);
+    game.clock.hour = 22;
+    game.lastComedorHour = game.totalGameHours;
+    game._poiCache = null;
     game.stats.dinero = 0; game.stats.hambre = 15; game.stats.sed = 80; game.stats.calor = 100;
     return { value: dealerOffer(ITEMS.pegante), label: cop(dealerOffer(ITEMS.pegante)) };
   });

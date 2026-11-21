@@ -60,6 +60,7 @@ import { planEastLots, buildColonialHouse, buildEnglishHouse, buildShopHouse } f
 import { buildChurch, buildCurvedTower, towerSilhouette, buildFountain, buildMarket } from '../bogota/EastLandmarks.js';
 import { buildCityEdge, buildTerminalEdge } from '../bogota/CityEdge.js';
 import { buildCityBackdrop } from '../bogota/CityBackdrop.js';
+import { BENCH_SIDE, benchSeatPoint } from '../bogota/benchSeats.js';
 
 import { ORIGINAL_SIZE as S, ORIGINAL_CARRERAS, ORIGINAL_CARACAS, ORIGINAL_CALLES,
   CARACAS, STREET_X, STREET_Z, expandStreets,
@@ -107,7 +108,6 @@ const TALK = ['hablar', 'hablar', 'hablar', 'brazos-cruzados', 'bolsillos'];
 // Posturas de quien espera el bus.
 const WAIT = ['celular', 'mirar-izquierda', 'celular', 'mirar-derecha', 'cambiar-peso'];
 // Lo que se queda quieto ocupa el andén y el prado, no la calle (ver tests/fixed-people.test.js).
-const BENCH_FRONT = .1;  // m del centro de la banca a la raíz de quien se sienta
 const benchFootprint = ({ x, z, rot }) => { // medio largo .83 m, medio fondo .3 m: por ahí no pasa la red de peatones
   const c = Math.abs(Math.cos(rot)), s = Math.abs(Math.sin(rot)), hx = c * .83 + s * .3, hz = s * .83 + c * .3;
   return { minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz };
@@ -1189,7 +1189,7 @@ export class Bogota {
     });
     seller.isVendor = true;
     this.npcs.push(seller);
-    this.vendors.push({ kind: 'shop', stall: kind, title, items, position: new THREE.Vector3(x, 0, z) });
+    this.vendors.push({ kind: 'shop', stall: kind, title, items, facing: rotY, position: new THREE.Vector3(x, 0, z) });
   }
 
   /** El Cartucho: humo, fuego, carretas, cambuches, ropa colgada y basura */
@@ -1454,9 +1454,9 @@ export class Bogota {
     for (const [x, z, arquetipo] of seated) {
       const bench = this.benchSpots.find(spot => spot.x === x && spot.z === z);
       if (!bench) continue;
-      const side = (list.length % 2 ? 1 : -1) * .36;
-      list.push({ at: [bench.x + Math.sin(bench.rot) * BENCH_FRONT + Math.cos(bench.rot) * side, bench.z + Math.cos(bench.rot) * BENCH_FRONT - Math.sin(bench.rot) * side],
-        facing: bench.rot, stance: 'banca', arquetipo });
+      const side = (list.length % 2 ? 1 : -1) * BENCH_SIDE;
+      const seat = benchSeatPoint(bench, side);
+      list.push({ at: [seat.x, seat.z], facing: bench.rot, stance: 'banca', arquetipo, benchSeat: { spot: bench, side } });
     }
     return list;
   }
@@ -1493,7 +1493,8 @@ export class Bogota {
       const npc = new Npc(this.scene, home, {
         // La red no sube al andén: quien se asusta allá arriba se queda en él y vuelve en línea recta.
         navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
-        arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
+        arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden,
+          reach: person.anden ? 0 : FIXED_REACH, benchSeat: person.benchSeat }
       });
       this.npcs.push(npc);
       // Cada pareja son dos entradas seguidas: el que se asusta se lleva al otro.

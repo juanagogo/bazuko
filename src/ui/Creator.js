@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { PALETTES, COLOR_NAMES, NAME_IDEAS, WEAR_LEVELS, ACCESSORIES, normalizeLook, randomLook, cleanName } from '../character/look.js';
 import { STREET_PRESETS, applyStreetPreset } from '../character/presets.js';
 import { garmentAllowed } from '../character/archetypes.js';
+import { deliveryLook } from '../character/deliveryLook.js';
 import { createRealisticCharacter, loadCatalog, optionsFor, normalizeReal, randomReal } from '../character/RealisticCharacter.js';
 import { ORIGINS } from '../data/origins.js';
 import { el } from './dom.js';
@@ -76,6 +77,8 @@ export function createCreator({ audio }) {
   let scene, camera, char = null, raf = 0;
   let catalog = null;
   let look = null;
+  let deliveryGear = null;
+  const previewLook = () => deliveryLook(look, deliveryGear?.equipped);
   let tab = 'identidad';
   let resolver = null;
   let yaw = 0.35, yawVel = 0;
@@ -105,12 +108,12 @@ export function createCreator({ audio }) {
     rim.position.set(-3, 2.5, -2);
     scene.add(rim);
     scene.add(sombraDibujada());
-    const lookInicial = look;
-    createRealisticCharacter(look).then((c) => {
+    const lookInicial = look, gearInicial = deliveryGear;
+    createRealisticCharacter(previewLook()).then((c) => {
       char = c;
       char.group.scale.setScalar(1);
       scene.add(char.group);
-      if (look !== lookInicial) char.setLook(look);
+      if (look !== lookInicial || deliveryGear !== gearInicial) char.setLook(previewLook());
     }).catch((causa) => {
       console.error('[Creador]', causa);
       espera.textContent = 'No se pudo mostrar el personaje. Se puede seguir igual.';
@@ -182,7 +185,7 @@ export function createCreator({ audio }) {
   function apply(patch) {
     look = normalizeLook({ ...look, ...patch, v: 2 });
     look.real = normalizeReal(catalog, look.real);
-    char?.setLook(look);
+    char?.setLook(previewLook());
     audio?.ui?.();
     renderPanel();
   }
@@ -345,6 +348,17 @@ export function createCreator({ audio }) {
       case 'ropa': {
         const hats = optionsFor(catalog, 'cabeza', L.real.sexo);
         body = [
+          deliveryGear && section('Equipo de reparto', el('div', { class: 'cr-chips', role: 'group', 'aria-label': 'Equipo de reparto' },
+            deliveryGear.pieces.map(item => {
+              const piece = item.deliveryGear, wearing = deliveryGear.equipped.includes(piece);
+              return chip(`reparto:${piece}`, item.name, wearing, () => {
+                const current = deliveryGear.equipped;
+                deliveryGear = { ...deliveryGear, equipped: wearing ? current.filter(x => x !== piece) : [...current, piece] };
+                char?.setLook(previewLook());
+                audio?.ui?.();
+                renderPanel();
+              });
+            })), el('p', { class: 'cr-help', text: 'El maletín habilita los domicilios. La ropa de calle queda guardada.' })),
           section('Ropa', realChips('ropa', optionsFor(catalog, 'ropa', L.real.sexo).filter((o) => garmentAllowed(o.id, L.real.edad)))),
           section('Calzado', realChips('calzado', optionsFor(catalog, 'calzado', L.real.sexo))),
           hats.length > 1 && section('Cabeza', realChips('cabeza', hats)),
@@ -398,7 +412,11 @@ export function createCreator({ audio }) {
   $('creator-random').addEventListener('click', () => {
     look = randomLook({ ...look, nombre: look.nombre, origen: look.origen });
     look.real = randomReal(catalog);
-    char?.setLook(look);
+    if (deliveryGear) {
+      const equipped = deliveryGear.pieces.filter(() => Math.random() < .5).map(item => item.deliveryGear);
+      deliveryGear = { ...deliveryGear, equipped };
+    }
+    char?.setLook(previewLook());
     wave = 1.2;
     audio?.ui?.();
     renderPanel();
@@ -426,7 +444,7 @@ export function createCreator({ audio }) {
       error.hidden = false;
       return;
     }
-    close({ ...look });
+    close(deliveryGear ? { ...look, deliveryGear: [...deliveryGear.equipped] } : { ...look });
   });
   root.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(null); return; }
@@ -440,15 +458,16 @@ export function createCreator({ audio }) {
 
   return {
     /** Abre el editor. Devuelve una promesa con la apariencia elegida (o null si se cancela). */
-    async open(current, { doneLabel = 'Listo', initialTab = null, onReady = () => {} } = {}) {
+    async open(current, { doneLabel = 'Listo', initialTab = null, onReady = () => {}, deliveryGear: gear = null } = {}) {
       window.__game?.cameraRig?.releaseControls?.();
       volverA = document.activeElement;
       catalog ??= await loadCatalog();
       look = normalizeLook(current);
       look.real = normalizeReal(catalog, look.real);
+      deliveryGear = gear;
       tab = initialTab ?? (look.nombre ? 'cuerpo' : 'identidad');
       if (!renderer) setupScene();
-      else char?.setLook(look);
+      else char?.setLook(previewLook());
       yaw = 0.35;
       yawVel = 0;
       wave = 1.4;

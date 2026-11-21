@@ -50,7 +50,9 @@ export class Momentos {
     this._eraDeNoche = null;
     this._relojCerrado = 0;
     cargarImprenta();
-    globalThis.addEventListener?.('sleep-start', (e) => this.abrirCerrado(e.detail?.despierta));
+    globalThis.addEventListener?.('sleep-start', (e) => {
+      if (!e.detail?.banca) this.abrirCerrado(e.detail?.despierta);
+    });
     globalThis.addEventListener?.('sleep-end', () => this.cerrarCerrado());
   }
 

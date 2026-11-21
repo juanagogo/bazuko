@@ -93,7 +93,7 @@ test('dormir corta el efecto', (t) => {
 
 test('detener el juego libera los efectos', () => {
   const fx = effectsSpy();
-  const game = Object.assign(Object.create(Game.prototype), { _running: true, substanceEffects: fx });
+  const game = Object.assign(Object.create(Game.prototype), { _running: true, substanceEffects: fx, player: { dismountBicycle() {} }, bicycles: [], bikeStations: [] });
   game.stop();
   assert.equal(fx.disposed, 1);
   assert.equal(game._running, false);

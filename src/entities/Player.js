@@ -1,12 +1,15 @@
 // src/entities/Player.js
 import * as THREE from 'three';
+import { deliveryLook } from '../character/deliveryLook.js';
+import { BenchNewspaper, benchSleepProgress } from '../character/BenchSleep.js';
+import { benchSeatPoint, freeBenchSide } from '../world/bogota/benchSeats.js';
 import {
   PLAYER_RADIUS,
   PLAYER_SPEED_WALK,
   PLAYER_SPEED_RUN,
   CHARACTER_SCALE
 } from '../utils/constants.js';
-import { createCharacter } from '../character/character.js';
+import { createCharacter, DEFAULT_LOOK } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
 import { MeleeCombat } from '../systems/MeleeCombat.js';
@@ -324,13 +327,19 @@ export class Player {
     }
   }
 
-  setLook(look) {
+  setLook(look, gear = this._deliveryGear) {
     this.look = look;
-    this.procedural.setLook(look);
+    this._deliveryGear = gear;
+    const outfit = this._displayLook = deliveryLook(look, gear);
+    this.procedural.setLook(outfit);
     this.procedural.group.traverse((o) => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
     });
-    return this._realistic?.setLook(look);
+    return this._realistic?.setLook(outfit);
+  }
+
+  setDeliveryGear(gear) {
+    this.setLook(this.look ?? DEFAULT_LOOK, gear)?.catch(error => console.warn('[Domicilios] No se pudo cambiar la ropa.', error));
   }
 
   /** Cambia entre el personaje realista (MakeHuman, por defecto) y el procedural (liviano) */
@@ -340,7 +349,8 @@ export class Player {
     const previousKind = this.modelKind;
     this.modelKind = kind;
     if (kind === 'realista') {
-      this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
+      const outfit = this._displayLook ?? this.look ?? {};
+      this._realisticPromise ??= createRealisticCharacter(outfit, {
         animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT
       });
       try {
@@ -350,7 +360,8 @@ export class Player {
         if (this.modelKind === kind) this.modelKind = previousKind;
         throw error;
       }
-      if (this._realistic.look !== this.look && this.look) await this._realistic.setLook(this.look);
+      const currentOutfit = this._displayLook ?? this.look ?? outfit;
+      if (this._realistic.look !== currentOutfit && this.look) await this._realistic.setLook(currentOutfit);
       if (this.modelKind !== 'realista') return; // se cambió mientras cargaba
       this.root.remove(this.character.group);
       this.character = this._realistic;
@@ -411,24 +422,26 @@ export class Player {
     this._faceYaw = Math.atan2(point.x - this.position.x, point.z - this.position.z);
   }
 
-  /** Se sienta en el punto del asiento más cercano al jugador, conservando el suelo físico. */
+  freeBenchSide(target) {
+    return freeBenchSide(target?.spot, this.position, this.game?.world?.active?.npcs);
+  }
+
+  /** Se sienta en la plaza libre más cercana, conservando el suelo físico. */
   sitOnBench(target) {
     const spot = target?.spot;
     if (!spot || this.isSwimming || this.isStunned || this.bicycle || this.hasCart || this.sorting || this.action) return false;
-    const sideX = Math.cos(spot.rot), sideZ = -Math.sin(spot.rot);
-    const side = THREE.MathUtils.clamp(
-      (this.position.x - spot.x) * sideX + (this.position.z - spot.z) * sideZ,
-      -.52, .52
-    );
-    const frontX = Math.sin(spot.rot), frontZ = Math.cos(spot.rot);
-    this.position.set(spot.x + frontX * .1 + sideX * side, this.position.y, spot.z + frontZ * .1 + sideZ * side);
+    if (this.benchSeat?.target === target) return true;
+    const side = this.freeBenchSide(target);
+    if (side === null) return false;
+    const { x, z } = benchSeatPoint(spot, side);
+    this.position.set(x, this.position.y, z);
     this.root.position.copy(this.position);
     this.root.rotation.y = spot.rot;
     this.root.rotation.x = 0;
     this.root.rotation.z = 0;
     this._faceYaw = null;
     this.velocity.set(0, 0, 0);
-    this.benchSeat = { target, spot };
+    this.benchSeat = { target, spot, side };
     this.state = 'sit';
     return true;
   }
@@ -475,6 +488,23 @@ export class Player {
     this.landing = 0;
   }
 
+  beginBenchSleep(alreadySeated) {
+    this._benchSleepOffset = this.benchSeat.side;
+    this._benchSleepWasSeated = alreadySeated;
+    this._benchSleepFrame ??= { progress: 0, weight: 1, finished: false };
+    if (!this._benchNewspaper) {
+      this._benchNewspaper = new BenchNewspaper();
+      this.root.add(this._benchNewspaper);
+    }
+  }
+
+  endBenchSleep() {
+    if (!this.movement.benchSleep) return;
+    this.movement.benchSleep = null;
+    this.character.group.position.x = 0;
+    this._benchNewspaper.visible = false;
+  }
+
   /** Dormir congela la simulación, no el cuerpo: se acuesta y sigue así hasta que Game lo despierta. */
   updateSleepPose(dt) {
     if (this.action !== 'dormir' || !(dt > 0)) return;
@@ -485,6 +515,17 @@ export class Player {
     this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
     this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
     Object.assign(this.movement, { landing: 0, turnRate: 0 });
+    if (this.sleepingOnBench && this._benchSleepFrame) {
+      const elapsed = this.actionDuration - this.actionTimer;
+      const frame = this._benchSleepFrame;
+      frame.progress = benchSleepProgress(elapsed);
+      frame.weight = this._benchSleepWasSeated ? 1 : THREE.MathUtils.smoothstep(elapsed, 0, .24);
+      frame.finished = this.actionTimer <= 1e-6;
+      this.movement.benchSleep = frame;
+      const slide = -this._benchSleepOffset * THREE.MathUtils.smoothstep(frame.progress, .06, .7);
+      this.character.group.position.x = slide;
+      this._benchNewspaper.show(frame.progress, slide);
+    }
     this.character.update(dt, {
       speed: 0,
       running: false,
@@ -500,6 +541,7 @@ export class Player {
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
     });
+    return this.movement.benchSleep?.finished === true;
   }
 
 
@@ -815,6 +857,7 @@ export class Player {
       const travelled = (this.position.x - before.x) * Math.sin(yaw) + (this.position.z - before.z) * Math.cos(yaw);
       const pedaling = z < -.05 && this.bicycle.speed > 0 || z > .05 && this.bicycle.speed < 0;
       this.bicycle.advanceAnimation(dt, travelled, this.isGrounded, pedaling);
+      this.bicycle.alignToSlope(dt, this.position, groundHeight, this.groundSurface, this.isGrounded);
     }
     this.movement.bicycle = this.bicycle;
 
@@ -840,11 +883,16 @@ export class Player {
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
     });
-    if (this.bicycle) this.character.group.rotation.z = this.bicycle.visual.rotation.z;
-    else this.character.group.rotation.z = 0;
+    if (this.bicycle) {
+      const visual = this.bicycle.visual;
+      this.character.group.rotation.x = visual.rotation.x;
+      this.character.group.rotation.z = visual.rotation.z;
+      this.character.group.position.y = visual.position.y;
+    } else this.character.group.rotation.z = 0;
   }
 
   dispose() {
+    this._benchNewspaper?.dispose();
     this.ragdoll.clear();
     this._smoke?.dispose();
     this._realistic?.dispose?.();

@@ -32,6 +32,7 @@ export class Caleta {
 
   /** Cuántas unidades de `id` caben ahora mismo. */
   room(id, built) {
+    if (ITEMS[id]?.deliveryGear) return 0;
     const w = ITEMS[id]?.weight ?? 0;
     const free = this.capacity(built) - this.weight;
     if (w <= 0) return free >= 0 && this.capacity(built) > 0 ? Infinity : 0;
