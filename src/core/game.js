@@ -49,7 +49,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
-import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
+import { distributeShelterLoot, distributeRadioLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
 import { InteractionSystem } from '../systems/InteractionSystem.js';
@@ -128,6 +128,8 @@ export class Game {
     this.talents = new TalentSystem();
     this.crafting = new CraftingSystem();
     this.radio = new RadioSystem();
+    this.radio.hasRadio = false; // Requiere encontrar la radio transistor en la basura (Issue #19)
+    this.radio.battery = 18; // Batería baja inicial para motivar buscar pilas
     this.radio.setMasterVolume(this.audio.volume, this.audio.muted);
     window.addEventListener('audio-settings-change', ({ detail }) => this.radio.setMasterVolume(detail.volume, detail.muted));
     window.addEventListener('weather-change', ({ detail }) => this.radio.onWeatherChange(detail));
@@ -233,7 +235,15 @@ export class Game {
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('police-arrest', () => this._policeArrest());
-    window.addEventListener('open-radio-modal', () => openRadioModal(this));
+    window.addEventListener('open-radio-modal', () => {
+      if (!this.radio?.hasRadio) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '📻 Necesitas encontrar una radio transistor en la basura para sintonizar emisoras.', type: 'warn' }
+        }));
+        return;
+      }
+      openRadioModal(this);
+    });
     window.addEventListener('open-missions', () => {
       if (this._missionsModalOpen) this.menu.close();
       else if (!this.paused) openMissionsModal(this);
@@ -252,7 +262,15 @@ export class Game {
       if ((e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-') && !this.paused) this.minimap.zoomStep(-1);
       if (e.code === 'KeyR') {
         if (this._radioModalOpen) this.menu.close();
-        else if (!this.paused) openRadioModal(this);
+        else if (!this.paused) {
+          if (!this.radio?.hasRadio) {
+            window.dispatchEvent(new CustomEvent('toast', {
+              detail: { text: '📻 Necesitas encontrar una radio transistor en la basura para sintonizar emisoras.', type: 'warn' }
+            }));
+          } else {
+            openRadioModal(this);
+          }
+        }
       }
       if (e.code === 'KeyJ' || e.code === 'KeyO') {
         if (this._missionsModalOpen) this.menu.close();
@@ -642,12 +660,14 @@ export class Game {
         const available = grid.filter(point => [...this.pickups, ...this.cars].every(other =>
           other === pickup || point.distanceTo(other.position) >= 4));
         pickup.relocate(available.length ? available[Math.floor(Math.random() * available.length)] : pickup.position);
+        distributeRadioLoot(this.pickups, this.radio?.hasRadio);
       };
       this.pickups.push(p);
       this.interaction.register(p);
     }
 
     distributeShelterLoot(this.pickups);
+    distributeRadioLoot(this.pickups, this.radio?.hasRadio);
     // Canecas permanentes en puntos de basura separados de las bolsas y lugares reservados.
     const containerSpots = spawnPositions.filter(point => this.pickups.every(pickup => point.distanceTo(pickup.position) >= 4));
     for (const point of containerSpots.slice(0, 12)) {
@@ -972,6 +992,11 @@ export class Game {
       if (data.radio) {
         if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
         if (typeof data.radio.battery === 'number') this.radio.battery = data.radio.battery;
+        if (typeof data.radio.hasRadio === 'boolean') {
+          this.radio.hasRadio = data.radio.hasRadio;
+        } else {
+          this.radio.hasRadio = true;
+        }
       }
       if (data.dog?.isFriend && this.dog) {
         this.dog.befriend();
@@ -1019,7 +1044,12 @@ export class Game {
       built: this.built,
       costal: this.costal,
       weapon: this.player.equippedWeapon,
-      radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
+      radio: this.radio ? {
+        isOn: this.radio.isOn,
+        freq: this.radio.frequency,
+        battery: this.radio.battery,
+        hasRadio: !!this.radio.hasRadio
+      } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
       bicycles: this.bicycles.map((bike) => bike.saveState()),
