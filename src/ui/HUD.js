@@ -273,6 +273,14 @@ export class HUD {
     // Lo que se oprime sobre el cartón no cae al mundo.
     document.getElementById('hud-dock')?.addEventListener?.('mousedown', (e) => e.stopPropagation());
     this.radioBtn?.addEventListener('click', () => {
+      const game = typeof window !== 'undefined' ? window.__game : null;
+      if (game && !game.radio?.hasRadio) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '📻 Necesitas encontrar una radio transistor en la basura para sintonizar emisoras.', type: 'warn' }
+        }));
+        this.radioBtn.blur();
+        return;
+      }
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
       this.radioBtn.blur();
     });

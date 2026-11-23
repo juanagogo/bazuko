@@ -38,3 +38,19 @@ export function distributeShelterLoot(pickups, random = Math.random) {
     }
   }
 }
+
+/**
+ * Coloca exactamente una radioTransistor en la basura si el jugador aún no la ha encontrado.
+ * Evita duplicados en respawns y preserva el botín único (Issue #19).
+ */
+export function distributeRadioLoot(pickups, hasRadio = false) {
+  if (hasRadio || !pickups || !pickups.length) return;
+  // Si ya hay un pickup con radioTransistor garantizado, no duplicar
+  if (pickups.some((p) => p.guaranteedLoot?.includes('radioTransistor'))) return;
+  // Asignar en un punto disponible
+  const target = pickups[1 % pickups.length] ?? pickups[0];
+  if (target) {
+    target.guaranteedLoot ??= [];
+    target.guaranteedLoot.push('radioTransistor');
+  }
+}

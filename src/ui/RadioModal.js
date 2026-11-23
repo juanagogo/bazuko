@@ -33,7 +33,7 @@ export function openRadioModal(game) {
   }
 
   const radio = game.radio;
-  if (!radio) return;
+  if (!radio || !radio.hasRadio) return;
 
   const render = () => {
     const isPowerOn = radio.isOn;

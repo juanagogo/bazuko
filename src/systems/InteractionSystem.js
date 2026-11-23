@@ -439,6 +439,16 @@ export class InteractionSystem {
         const rarity = itemRarityLabel(itemId);
         added.push(`${item.name}${rarity ? ` (${rarity})` : ''}`);
         if (item.rare || ['rare', 'veryRare'].includes(item.rarity)) collectedRare ??= itemId;
+        if (itemId === 'radioTransistor') {
+          const game = this.player?.game ?? (typeof window !== 'undefined' ? window.__game : null);
+          if (game?.radio) {
+            game.radio.hasRadio = true;
+            game.radio.battery = Math.min(game.radio.battery, 20);
+          }
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { text: '📻 ¡Encontraste una radio transistor! Pulsa [R] para sintonizar emisoras.', type: 'rare' }
+          }));
+        }
       } else if (item) uncollected.push(itemId);
     }
     target.returnUncollected?.(uncollected, result.sorted);
