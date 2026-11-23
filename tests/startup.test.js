@@ -76,7 +76,9 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   f.game.world.active.getGroundHeight = () => .08;
   f.game._loadIfSave = () => {
     f.game.player.position.set(40, 0, 26);
-    f.game.clock.deserialize({ day: 5, hour: 9 });
+    f.game.clock.deserialize({ day: 5, hour: 22 });
+    f.game.weather.setWeather('llovizna', false);
+    return true;
   };
   const start = f.game.start(f.loading);
   assert.equal(f.game.start(f.loading), start);

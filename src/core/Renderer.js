@@ -177,7 +177,7 @@ export class Renderer {
     this._pixelRatio = this.resolution.ratio;
     this.instance.setSize(window.innerWidth, window.innerHeight);
     this.instance.shadowMap.enabled = true;
-    this.instance.shadowMap.type = THREE.PCFShadowMap;
+    this.instance.shadowMap.type = THREE.PCFSoftShadowMap;
 
     // Look realista: tone mapping fílmico
     this.instance.toneMapping = THREE.ACESFilmicToneMapping;
@@ -209,12 +209,16 @@ export class Renderer {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
     this.resolution.setLimit(this._resolutionCap(this.quality));
     this._setShadows(this.effectiveQuality !== 'baja');
-    this.instance.shadowMap.type = THREE.PCFShadowMap;
+    this.instance.shadowMap.type = this.effectiveQuality === 'alta' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.instance.shadowMap.needsUpdate = true;
     this._settleFrames = SETTLE_FRAMES;
     // El primer llamado es el arranque con la calidad por defecto: no es una elección y no se guarda.
     const auto = this.autoQuality;
-    if (auto?.eligible && !auto.started) { auto.started = true; return; }
+    if (auto?.eligible && !auto.started) {
+      auto.started = true;
+      if (this.quality !== 'baja') auto.eligible = false;
+      return;
+    }
     this.rememberQuality(this.quality);
     this._setShadows(this.effectiveQuality !== 'baja');
   }

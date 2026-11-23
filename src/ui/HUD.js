@@ -112,7 +112,7 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
-  if (type === 'bench') return `${interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca'} · [Q] Dormir gratis`;
+  if (type === 'bench') return interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca · [Q] Dormir gratis' : '[E] Sentarme en la banca · [Q] Dormir gratis';
   if (type === 'bicycle') {
     if (interaction.player?.bicycle === interaction.currentTarget) {
       const bike = interaction.currentTarget;
@@ -916,7 +916,7 @@ export class HUD {
       game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
       game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
       game.audio?.play('pickup');
-      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      this._toast('Me puse ropa limpia (+30 higiene, +15 ánimo)', 'info');
       game.openWardrobe?.();
       return;
     }

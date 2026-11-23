@@ -76,13 +76,18 @@ test('el generador da lo mismo que está en el repositorio', () => {
     generar(salida);
     for (const f of fs.readdirSync(FUENTES)) {
       const [hay, sale] = [path.join(FUENTES, f), path.join(salida, f)].map((r) => fs.readFileSync(r));
-      if (!f.endsWith('.woff')) { assert.ok(hay.equals(sale), f); continue; }
+      if (!f.endsWith('.woff')) {
+        const limpia = (buf) => buf.toString('utf8').replace(/\r\n/g, '\n');
+        assert.equal(limpia(hay), limpia(sale), f);
+        continue;
+      }
       // El compresor no da los mismos bytes en todos los procesadores: los .woff se comparan por dentro.
       const [a, b] = [tablas(hay), tablas(sale)];
       assert.deepEqual(Object.keys(a), Object.keys(b), f);
       for (const t of Object.keys(a)) assert.ok(a[t].equals(b[t]), `${f}: ${t}`);
     }
-    assert.ok(fs.readFileSync(path.join(RAIZ, 'src/ui/css/marcas.css')).equals(fs.readFileSync(path.join(salida, 'marcas.css'))), 'marcas.css');
+    const limpia = (buf) => buf.toString('utf8').replace(/\r\n/g, '\n');
+    assert.equal(limpia(fs.readFileSync(path.join(RAIZ, 'src/ui/css/marcas.css'))), limpia(fs.readFileSync(path.join(salida, 'marcas.css'))), 'marcas.css');
   } finally {
     fs.rmSync(salida, { recursive: true, force: true });
   }
