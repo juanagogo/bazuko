@@ -206,7 +206,7 @@ export class Game {
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
-    let quality = 'baja';
+    let quality = 'alta';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
     this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
