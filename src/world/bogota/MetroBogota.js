@@ -16,6 +16,95 @@ export const METRO = Object.freeze({
   pillarRadius: 1.1     // Radio de las columnas cilíndricas
 });
 
+export const METRO_DETOUR = Object.freeze({
+  z0: 130,              // Inicio del desvío al norte de Torre Colpatria
+  z1: 210,              // Retorno al eje central al sur de Calle 26
+  colpatriaStart: 154,  // Inicio del tramo que libra Torre Colpatria
+  colpatriaEnd: 182,    // Fin del tramo que libra Torre Colpatria
+  offset: -18           // Desvío al occidente (x = 75 - 18 = 57), librando Torre Colpatria (x = 69..93)
+});
+
+/** Devuelve la coordenada X del eje central del viaducto del Metro para cualquier cota Z. */
+export function metroCenter(z) {
+  const { z0, z1, colpatriaStart, colpatriaEnd, offset } = METRO_DETOUR;
+  if (z <= z0 || z >= z1) return METRO.x;
+  const t = z < colpatriaStart
+    ? (z - z0) / (colpatriaStart - z0)
+    : z > colpatriaEnd
+      ? (z1 - z) / (z1 - colpatriaEnd)
+      : 1;
+  const clamped = Math.max(0, Math.min(1, t));
+  const ease = clamped * clamped * (3 - 2 * clamped);
+  return METRO.x + offset * ease;
+}
+
+/** Vector normal unitario horizontal perpendicular al eje del viaducto en Z. */
+export function metroNormal(z) {
+  const dx = (metroCenter(z + 0.1) - metroCenter(z - 0.1)) / 0.2;
+  const len = Math.hypot(1, dx);
+  return { x: 1 / len, z: -dx / len };
+}
+
+/** Construye una cinta geométrica extruida con ancho y cotas Y a lo largo del trazado. */
+function createRibbonGeometry(offsetFromCenter, width, yTop, yBottom) {
+  const step = 2;
+  const zs = [];
+  for (let z = METRO.zStart; z <= METRO.zEnd; z += step) zs.push(z);
+  if (zs[zs.length - 1] < METRO.zEnd) zs.push(METRO.zEnd);
+
+  const vertices = [];
+  const indices = [];
+
+  for (let i = 0; i < zs.length; i++) {
+    const z = zs[i];
+    const cx = metroCenter(z);
+    const n = metroNormal(z);
+    const centerX = cx + offsetFromCenter * n.x;
+    const centerZ = z + offsetFromCenter * n.z;
+    const halfW = width / 2;
+
+    const lx = centerX - halfW * n.x, lz = centerZ - halfW * n.z;
+    const rx = centerX + halfW * n.x, rz = centerZ + halfW * n.z;
+
+    vertices.push(lx, yTop, lz);     // 4*i + 0
+    vertices.push(rx, yTop, rz);     // 4*i + 1
+    vertices.push(lx, yBottom, lz);  // 4*i + 2
+    vertices.push(rx, yBottom, rz);  // 4*i + 3
+
+    if (i < zs.length - 1) {
+      const c = 4 * i;
+      const next = 4 * (i + 1);
+
+      // Cara superior
+      indices.push(c + 0, next + 0, c + 1);
+      indices.push(c + 1, next + 0, next + 1);
+
+      // Cara inferior
+      indices.push(c + 2, c + 3, next + 2);
+      indices.push(c + 3, next + 3, next + 2);
+
+      // Lateral izquierdo
+      indices.push(c + 0, c + 2, next + 0);
+      indices.push(c + 2, next + 2, next + 0);
+
+      // Lateral derecho
+      indices.push(c + 1, next + 1, c + 3);
+      indices.push(c + 3, next + 1, next + 3);
+    }
+  }
+
+  // Tapas frontal y posterior
+  indices.push(0, 1, 2); indices.push(1, 3, 2);
+  const last = 4 * (zs.length - 1);
+  indices.push(last + 0, last + 2, last + 1); indices.push(last + 1, last + 2, last + 3);
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 export function buildMetroBogota({ pavement } = {}) {
   const group = new THREE.Group();
   group.name = 'MetroBogota';
@@ -34,67 +123,117 @@ export function buildMetroBogota({ pavement } = {}) {
   const maletinOrangeMat = new THREE.MeshLambertMaterial({ color: 0xe65100, name: 'MaletinNaranja' });
   const maletinWhiteMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5, name: 'MaletinBlanco' });
 
-  // 1. VIADUCTO ELEVADO Y PILAS DE CONCRETO
-  const length = METRO.zEnd - METRO.zStart;
-  const centerZ = (METRO.zStart + METRO.zEnd) / 2;
-
+  // 1. VIADUCTO ELEVADO Y PILAS DE CONCRETO (Curvado para librar Torre Colpatria)
   // Tablero principal (viga cajón / dovelas)
-  const deckGeo = new THREE.BoxGeometry(METRO.deckWidth, METRO.deckThickness, length);
+  const deckGeo = createRibbonGeometry(0, METRO.deckWidth, METRO.trackHeight, METRO.trackHeight - METRO.deckThickness);
   const deck = new THREE.Mesh(deckGeo, darkConcreteMat);
-  deck.position.set(METRO.x, METRO.trackHeight - METRO.deckThickness / 2, centerZ);
+  deck.name = 'TableroMetro';
   group.add(deck);
 
   // Barandas de protección lateral del viaducto
   const parapetHeight = 1.2;
   const parapetThickness = 0.35;
-  const parapetGeo = new THREE.BoxGeometry(parapetThickness, parapetHeight, length);
-  const leftParapet = new THREE.Mesh(parapetGeo, concreteMat);
-  leftParapet.position.set(METRO.x - METRO.deckWidth / 2 + parapetThickness / 2, METRO.trackHeight + parapetHeight / 2, centerZ);
+  const leftParapetOffset = -METRO.deckWidth / 2 + parapetThickness / 2;
+  const rightParapetOffset = METRO.deckWidth / 2 - parapetThickness / 2;
+
+  const leftParapetGeo = createRibbonGeometry(leftParapetOffset, parapetThickness, METRO.trackHeight + parapetHeight, METRO.trackHeight);
+  const leftParapet = new THREE.Mesh(leftParapetGeo, concreteMat);
+  leftParapet.name = 'BarandaMetroIzquierda';
   group.add(leftParapet);
 
-  const rightParapet = new THREE.Mesh(parapetGeo, concreteMat);
-  rightParapet.position.set(METRO.x + METRO.deckWidth / 2 - parapetThickness / 2, METRO.trackHeight + parapetHeight / 2, centerZ);
+  const rightParapetGeo = createRibbonGeometry(rightParapetOffset, parapetThickness, METRO.trackHeight + parapetHeight, METRO.trackHeight);
+  const rightParapet = new THREE.Mesh(rightParapetGeo, concreteMat);
+  rightParapet.name = 'BarandaMetroDerecha';
   group.add(rightParapet);
 
-  // Lecho de vías (balasto) y rieles dobles
-  const ballastGeo = new THREE.BoxGeometry(METRO.deckWidth - 1.2, 0.15, length);
+  // Lecho de vías (balasto)
+  const ballastGeo = createRibbonGeometry(0, METRO.deckWidth - 1.2, METRO.trackHeight + 0.15, METRO.trackHeight);
   const ballast = new THREE.Mesh(ballastGeo, ballastMat);
-  ballast.position.set(METRO.x, METRO.trackHeight + 0.08, centerZ);
+  ballast.name = 'BalastoMetro';
   group.add(ballast);
 
   // 4 Rieles de acero (vía norte y vía sur)
-  const railPositionsX = [-2.6, -1.2, 1.2, 2.6];
-  for (const rX of railPositionsX) {
-    const railGeo = new THREE.BoxGeometry(0.1, 0.18, length);
+  const railOffsets = [-2.6, -1.2, 1.2, 2.6];
+  for (const rX of railOffsets) {
+    const railGeo = createRibbonGeometry(rX, 0.1, METRO.trackHeight + 0.31, METRO.trackHeight + 0.13);
     const rail = new THREE.Mesh(railGeo, railMat);
-    rail.position.set(METRO.x + rX, METRO.trackHeight + 0.22, centerZ);
+    rail.name = 'RielMetro';
     group.add(rail);
   }
 
-  // Columnas / Pilas monumentales en el separador
+  // Columnas / Pilas monumentales en el separador y pórticos donde cruza sobre el viaducto de buses
   const pillarHeight = METRO.trackHeight - METRO.deckThickness;
   const pillarGeo = new THREE.CylinderGeometry(METRO.pillarRadius, METRO.pillarRadius * 1.15, pillarHeight, 16);
   const capGeo = new THREE.BoxGeometry(METRO.deckWidth * 0.95, 1.2, 3.2);
 
+  // Elementos para pórticos (straddle bents) donde el Metro pasa sobre el viaducto de buses (Issue #79)
+  const porticoLegGeo = new THREE.CylinderGeometry(0.85, 0.95, pillarHeight, 16);
+  const porticoBeamGeo = new THREE.BoxGeometry(17.5, 1.2, 3.0);
+
   for (let z = METRO.zStart + 6; z <= METRO.zEnd - 6; z += METRO.pillarSpacing) {
-    // Columna cilíndrica
-    const pillar = new THREE.Mesh(pillarGeo, concreteMat);
-    pillar.position.set(METRO.x, pillarHeight / 2, z);
-    group.add(pillar);
+    const cx = metroCenter(z);
+    const n = metroNormal(z);
 
-    // Capitel de apoyo en martillo
-    const cap = new THREE.Mesh(capGeo, darkConcreteMat);
-    cap.position.set(METRO.x, pillarHeight + 0.6, z);
-    group.add(cap);
+    // Si coincide con la calzada del viaducto de buses (z < 95 o z > 250 donde el bus circula en x=75, calzada de 14m),
+    // se construye un pórtico en herradura con dos apoyos laterales para no atravesar la vía de buses.
+    const isBusViaductBelow = (z < 95 || z > 250);
 
-    // Colisión sólida del pilar en el suelo
-    colliders.push({
-      box: new THREE.Box3(
-        new THREE.Vector3(METRO.x - METRO.pillarRadius, 0, z - METRO.pillarRadius),
-        new THREE.Vector3(METRO.x + METRO.pillarRadius, METRO.trackHeight, z + METRO.pillarRadius)
-      ),
-      mesh: pillar
-    });
+    if (isBusViaductBelow) {
+      const legDist = 8.2; // A 8.2m a cada lado del eje (x = 66.8 y 83.2, fuera de la calzada de 14m de buses)
+
+      const leftPillar = new THREE.Mesh(porticoLegGeo, concreteMat);
+      leftPillar.position.set(cx - legDist, pillarHeight / 2, z);
+      leftPillar.name = `PorticoMetro_Izq_Z${z}`;
+      group.add(leftPillar);
+
+      const rightPillar = new THREE.Mesh(porticoLegGeo, concreteMat);
+      rightPillar.position.set(cx + legDist, pillarHeight / 2, z);
+      rightPillar.name = `PorticoMetro_Der_Z${z}`;
+      group.add(rightPillar);
+
+      const porticoBeam = new THREE.Mesh(porticoBeamGeo, darkConcreteMat);
+      porticoBeam.position.set(cx, pillarHeight + 0.6, z);
+      porticoBeam.name = `PorticoMetro_Dintel_Z${z}`;
+      group.add(porticoBeam);
+
+      // Colisionadores en las dos columnas laterales (dejando libre la calzada del bus al centro)
+      colliders.push({
+        box: new THREE.Box3(
+          new THREE.Vector3(cx - legDist - 0.9, 0, z - 0.9),
+          new THREE.Vector3(cx - legDist + 0.9, METRO.trackHeight, z + 0.9)
+        ),
+        mesh: leftPillar
+      });
+      colliders.push({
+        box: new THREE.Box3(
+          new THREE.Vector3(cx + legDist - 0.9, 0, z - 0.9),
+          new THREE.Vector3(cx + legDist + 0.9, METRO.trackHeight, z + 0.9)
+        ),
+        mesh: rightPillar
+      });
+    } else {
+      // Columna central cilíndrica estándar (sobre separador central o zona despejada)
+      const pillar = new THREE.Mesh(pillarGeo, concreteMat);
+      pillar.position.set(cx, pillarHeight / 2, z);
+      pillar.name = `PilarMetro_Z${z}`;
+      group.add(pillar);
+
+      const cap = new THREE.Mesh(capGeo, darkConcreteMat);
+      cap.position.set(cx, pillarHeight + 0.6, z);
+      if (Math.abs(n.z) > 0.01) {
+        cap.rotation.y = Math.atan2(-n.z, n.x);
+      }
+      cap.name = `CapitelMetro_Z${z}`;
+      group.add(cap);
+
+      colliders.push({
+        box: new THREE.Box3(
+          new THREE.Vector3(cx - METRO.pillarRadius, 0, z - METRO.pillarRadius),
+          new THREE.Vector3(cx + METRO.pillarRadius, METRO.trackHeight, z + METRO.pillarRadius)
+        ),
+        mesh: pillar
+      });
+    }
   }
 
   // 2. EL TREN DEL METRO DE BOGOTÁ (OFICIAL PLMB - VERDE Y BLANCO)
@@ -159,14 +298,16 @@ export function buildMetroBogota({ pavement } = {}) {
       carGroup.add(rightHeadlight);
     }
 
-    carGroup.position.set(METRO.x + 1.9, trainY, cZ);
+    const trainX = metroCenter(cZ) + 1.9;
+    carGroup.position.set(trainX, trainY, cZ);
     group.add(carGroup);
   }
 
   // 3. ESTACIONES ELEVADAS INTERMODALES DEL METRO DE BOGOTÁ (LÍNEA 1)
-  // - Estación Calle 72 (Terminal norte de la Línea 1, Caracas con Calle 72)
-  // - Estación Central / Calle 26 (Intercambio multimodal con TransMilenio y Centro Internacional)
+  // - Estación Calle 72 (Terminal norte de la Línea 1, Caracas con Calle 72, z=115)
+  // - Estación Central / Calle 26 (Intercambio multimodal con TransMilenio y Centro Internacional, z=193)
   const buildStation = (stationZ, stationName) => {
+    const stationX = metroCenter(stationZ);
     const stationWidth = 14;
     const stationLength = 32;
     const stationGroup = new THREE.Group();
@@ -188,17 +329,39 @@ export function buildMetroBogota({ pavement } = {}) {
     stationRoof.position.set(0, METRO.trackHeight + 4.8, 0);
     stationGroup.add(stationRoof);
 
-    // Pasarelas y escaleras de acceso peatonal desde la calle
-    const stairsGeo = new THREE.BoxGeometry(3.5, METRO.trackHeight, 4.5);
-    const stairsWest = new THREE.Mesh(stairsGeo, concreteMat);
-    stairsWest.position.set(-stationWidth / 2 - 1.8, METRO.trackHeight / 2, 0);
-    stationGroup.add(stairsWest);
+    // Escaleras de acceso peatonal orientadas longitudinalmente sobre el separador
+    // evitando invadir la calzada vehicular a los lados (x = 69..80)
+    const stairWidth = 3.2;
+    const stairLength = 5.0;
+    const stairsGeo = new THREE.BoxGeometry(stairWidth, METRO.trackHeight, stairLength);
 
-    const stairsEast = new THREE.Mesh(stairsGeo, concreteMat);
-    stairsEast.position.set(stationWidth / 2 + 1.8, METRO.trackHeight / 2, 0);
-    stationGroup.add(stairsEast);
+    const stairsNorth = new THREE.Mesh(stairsGeo, concreteMat);
+    stairsNorth.position.set(0, METRO.trackHeight / 2, stationLength / 2 + stairLength / 2);
+    stairsNorth.name = `${stationName}_EscaleraNorte`;
+    stationGroup.add(stairsNorth);
 
-    stationGroup.position.set(METRO.x, 0, stationZ);
+    const stairsSouth = new THREE.Mesh(stairsGeo, concreteMat);
+    stairsSouth.position.set(0, METRO.trackHeight / 2, -stationLength / 2 - stairLength / 2);
+    stairsSouth.name = `${stationName}_EscaleraSur`;
+    stationGroup.add(stairsSouth);
+
+    // Colisionadores sólidos para las escaleras de acceso (evita atravesarlas como fantasma)
+    colliders.push({
+      box: new THREE.Box3(
+        new THREE.Vector3(stationX - stairWidth / 2, 0, stationZ + stationLength / 2),
+        new THREE.Vector3(stationX + stairWidth / 2, METRO.trackHeight, stationZ + stationLength / 2 + stairLength)
+      ),
+      mesh: stairsNorth
+    });
+    colliders.push({
+      box: new THREE.Box3(
+        new THREE.Vector3(stationX - stairWidth / 2, 0, stationZ - stationLength / 2 - stairLength),
+        new THREE.Vector3(stationX + stairWidth / 2, METRO.trackHeight, stationZ - stationLength / 2)
+      ),
+      mesh: stairsSouth
+    });
+
+    stationGroup.position.set(stationX, 0, stationZ);
     return stationGroup;
   };
 
@@ -209,15 +372,16 @@ export function buildMetroBogota({ pavement } = {}) {
   // Polisombra verde y maletines naranjas de desvío a lo largo de la Av. Caracas
   const workZoneZ = [65, 95, 125, 160, 200];
   for (const wZ of workZoneZ) {
+    const wX = metroCenter(wZ);
     // Tela polisombra verde
     const poliGeo = new THREE.PlaneGeometry(16, 2.2);
     const poliLeft = new THREE.Mesh(poliGeo, polisombraMat);
-    poliLeft.position.set(METRO.x - 3.2, 1.1, wZ);
+    poliLeft.position.set(wX - 3.2, 1.1, wZ);
     poliLeft.rotation.y = Math.PI / 2;
     group.add(poliLeft);
 
     const poliRight = new THREE.Mesh(poliGeo, polisombraMat);
-    poliRight.position.set(METRO.x + 3.2, 1.1, wZ);
+    poliRight.position.set(wX + 3.2, 1.1, wZ);
     poliRight.rotation.y = -Math.PI / 2;
     group.add(poliRight);
 
@@ -227,7 +391,7 @@ export function buildMetroBogota({ pavement } = {}) {
       const maletinMat = isOrange ? maletinOrangeMat : maletinWhiteMat;
       const malGeo = new THREE.BoxGeometry(0.5, 0.75, 1.2);
       const maletin = new THREE.Mesh(malGeo, maletinMat);
-      maletin.position.set(METRO.x - 3.4, 0.38, wZ + mz);
+      maletin.position.set(wX - 3.4, 0.38, wZ + mz);
       group.add(maletin);
     }
   }
