@@ -445,12 +445,16 @@ export class Game {
 
   /** Cambio de ropa: abre directamente la sección de ropa */
   async openWardrobe() {
+    const previousLook = JSON.stringify(this.look);
     const look = await this.creator.open(this.look, { initialTab: 'ropa', doneLabel: 'Vestirme' });
     if (look) {
+      const changed = JSON.stringify(look) !== previousLook;
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
-      this.audio?.play?.('pickup');
+      if (changed) {
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+        this.audio?.play?.('pickup');
+      }
     }
   }
 

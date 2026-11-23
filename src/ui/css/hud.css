@@ -306,6 +306,8 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 #steal-ayuda { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 7px; margin: 0; font-weight: 800; font-size: 17px; line-height: 1.1; text-align: center; }
 #steal-ayuda kbd { font-size: 14px; }
 .is-photo-mode #steal-minigame { visibility: hidden !important; }
+/* Durante el minijuego de robo de espejo o cosquilleo, no tapar la pantalla con el aviso de la tecla E */
+body:has(#steal-minigame:not([hidden])) #interaction-prompt { display: none !important; }
 
 /* ---------- cuando no toca ---------- */
 body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #tarea, #boost-indicator, #cart-indicator, #zona-cartel) {
