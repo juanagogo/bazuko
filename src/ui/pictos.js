@@ -17,7 +17,7 @@ export const PICTOS = {
   '🪙': 'moneda', '💰': 'moneda', '💸': 'moneda', '💎': 'moneda', '💍': 'anillo', '🧼': 'jabon', '🪥': 'cepillo',
   '💊': 'pastilla', '🧪': 'frasco', '🪞': 'retrovisor', '📻': 'radio', '📡': 'radio', '📶': 'radio', '🎸': 'radio',
   '🔋': 'pilas', '💩': 'popo', '🌿': 'hierba', '🎟': 'rifa', '🗡': 'arma', '🔪': 'cuchillo', '🍾': 'botellaPicada',
-  '🚬': 'cigarrillo', '🧴': 'pegante',
+  '🚬': 'cigarrillo', '🧴': 'pegante', '👕': 'camisa',
   // El cuerpo
   '🦠': 'bicho', '🐜': 'bicho', '🪱': 'bicho', '☠': 'bicho', '🤧': 'enfermo', '🤢': 'nauseas', '🥶': 'termometro',
   '😴': 'sueno', '💤': 'sueno',
@@ -29,12 +29,13 @@ export const PICTOS = {
   // Los sitios
   '🏪': 'tienda', '🏬': 'tienda', '🧺': 'tienda', '🏙': 'edificio', '🏢': 'edificio', '🌊': 'lago', '⛲': 'parque',
   '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
-  '🎒': 'costal', '❌': 'cerrar', '🚫': 'cerrar',
+  '🎒': 'costal', '❌': 'cerrar', '🚫': 'cerrar', '🚇': 'bus',
   // Símbolos que no son emoji y la letra no trae
   '◎': 'centrar', '⤢': 'ciudad',
   // Se quitan
   '🤮': null, '🤬': null, '😡': null, '🏃': null, '♂': null, '😮': null, '🩸': null, '🚙': null, '🟣': null,
   '🔴': null, '🟢': null, '⚖': null, '🗣': null,
+  '⏩': null, '⏭': null, '😌': null, '💡': null, '❤': null, '⏹': null,
 };
 
 // La letra trae estas flechas como signos; no son emoji aunque Unicode las pueda pintar como tales.

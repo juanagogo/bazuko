@@ -31,7 +31,8 @@ test('Carro recién creado es apto para limpiar parabrisas', () => {
   car.dispose();
 });
 
-test('Limpiar parabrisas otorga monedas y consume energía', () => {
+test('Limpiar parabrisas otorga monedas y consume energía', (t) => {
+  t.mock.method(Math, 'random', () => 0.5);
   const car = fakeCar();
   const player = { position: new THREE.Vector3(0, 0, 1.2), faceTowards() {}, playAction() {} };
   const stats = { energia: 50, dinero: 1000, animo: 50, addXP() {} };

@@ -279,9 +279,19 @@ export class TrafficSystem {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
+      if (vehicle.police) {
+        if (vehicle.state === 'patrol' && !vehicle.hold && !vehicle.rejoinTarget) {
+          if (this._forceRejoin(vehicle)) {
+            vehicle.stoppedFor = 0;
+            return;
+          }
+        }
+        continue;
+      }
+      if (!this._canRetire(vehicle)) continue;
       this._retire(vehicle);
       return; // uno por cuadro, para que la retirada se note como el resto del montaje
     }

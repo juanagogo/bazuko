@@ -117,7 +117,7 @@ function recorrerElJuego(raiz, mapa, { excluir = [] }) {
   const fuera = (rel) => excluir.some((e) => rel.startsWith(e));
   const recorrer = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const ruta = path.join(dir, e.name), rel = path.relative(raiz, ruta);
+      const ruta = path.join(dir, e.name), rel = path.relative(raiz, ruta).replace(/\\/g, '/');
       if (fuera(rel)) continue;
       if (e.isDirectory()) recorrer(ruta);
       else if (e.name.endsWith('.js')) leerJs(fs.readFileSync(ruta, 'utf8'), rel, mapa);

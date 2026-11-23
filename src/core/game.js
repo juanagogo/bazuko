@@ -449,7 +449,7 @@ export class Game {
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
   }
@@ -1770,19 +1770,19 @@ export class Game {
     this.renderer.dynamicWorldRoots = [
       ...(district?.animated ?? []),
       ...(district?.busServices ?? [district?.busService].filter(Boolean)).map(bus => bus.group),
-      ...this.bicycles.map(bike => bike.group)
+      ...(this.bicycles ?? []).map(bike => bike.group)
     ];
     culling.clear();
     if (this.dog) culling.register(this.dog.group, { dynamic: true, margin: 1 });
     for (const flock of district?.pigeonFlocks ?? []) culling.register(flock.group);
     for (const sector of district?.renderSectors ?? []) culling.register(sector);
     if (district?.signals) culling.register(district.signals.group);
-    for (const pickup of this.pickups) culling.register(pickup.group, { dynamic: true, margin: .2 });
+    for (const pickup of this.pickups ?? []) culling.register(pickup.group, { dynamic: true, margin: .2 });
     for (const object of district?.animated ?? []) culling.register(object, { margin: 1 });
     for (const bus of district?.busServices ?? [district?.busService].filter(Boolean)) culling.register(bus.group, { dynamic: true, margin: .5 });
-    for (const car of this.cars) culling.register(car.group, { dynamic: true, margin: .5 });
+    for (const car of this.cars ?? []) culling.register(car.group, { dynamic: true, margin: .5 });
     for (const { car } of this.traffic?.vehicles ?? []) culling.register(car.group, { dynamic: true, margin: .5 });
-    for (const bike of this.bicycles) culling.register(bike.group, { dynamic: true, margin: 1 });
+    for (const bike of this.bicycles ?? []) culling.register(bike.group, { dynamic: true, margin: 1 });
     for (const motos of this.parkedMotos?.children ?? []) culling.register(motos);
   }
 

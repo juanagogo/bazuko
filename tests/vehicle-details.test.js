@@ -282,7 +282,7 @@ test('cada grupo de motos es un lote propio: el que no se ve no se dibuja', () =
   const registered = [];
   Game.prototype._registerRenderGroups.call({
     localLights: { refreshSources() {} }, renderer: { culling: { clear() {}, register: object => registered.push(object) } },
-    world: { active: null }, cars: [], pickups: [], parkedMotos: root,
+    world: { active: null }, cars: [], pickups: [], parkedMotos: root, bicycles: [],
   });
   assert.ok(registered.length === 2 && registered[0] === near && registered[1] === far, 'cada lote registrado en el descarte');
 

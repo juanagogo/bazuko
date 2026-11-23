@@ -6,7 +6,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'reciclar',
     title: 'Jornada de reciclaje',
-    desc: 'Recoge 4 bolsas o canecas de basura por la ciudad.',
+    desc: 'Recoja 4 bolsas o canecas de basura por la ciudad.',
     target: 4,
     icon: 'recycle',
     reward: { dinero: 3000, xp: 30, animo: 10 }
@@ -14,7 +14,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'vender',
     title: 'El rebusque en El Progreso',
-    desc: 'Vende material reciclable y gana al menos $2.000.',
+    desc: 'Venda material reciclable y gane al menos $2.000.',
     target: 2000,
     icon: 'coins',
     reward: { dinero: 2000, xp: 25, animo: 15 }
@@ -22,7 +22,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'comedor',
     title: 'Almuerzo solidario',
-    desc: 'Visita el Comedor Comunitario y recibe la ración diaria.',
+    desc: 'Visite el Comedor Comunitario y reciba la ración diaria.',
     target: 1,
     icon: 'food',
     reward: { dinero: 1500, xp: 30, animo: 20 }
@@ -30,7 +30,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'perro',
     title: 'Compañero fiel',
-    desc: 'Atiende a El Chato (dale comida o acarícialo).',
+    desc: 'Atienda a El Chato (dele comida o consiéntalo).',
     target: 1,
     icon: 'dog',
     reward: { dinero: 1000, xp: 25, animo: 20 }
@@ -38,7 +38,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'ropa',
     title: 'Cambio de pinta',
-    desc: 'Cámbiate de ropa para protegerte del clima frío.',
+    desc: 'Cámbiese de ropa para protegerse del clima frío.',
     target: 1,
     icon: 'shirt',
     reward: { dinero: 1500, xp: 20, animo: 15 }
@@ -46,7 +46,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'fogata',
     title: 'Al calor de la candela',
-    desc: 'Caliéntate las manos en una fogata de El Cartucho.',
+    desc: 'Caliéntese las manos en una fogata de El Cartucho.',
     target: 1,
     icon: 'flame',
     reward: { dinero: 1200, xp: 20, animo: 15 }
@@ -54,7 +54,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'limosna',
     title: 'La moneda de la suerte',
-    desc: 'Pide limosna exitosamente 2 veces.',
+    desc: 'Pida limosna exitosamente 2 veces.',
     target: 2,
     icon: 'hand',
     reward: { dinero: 2000, xp: 25, animo: 15 }
@@ -62,7 +62,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'crafteo',
     title: 'Artesano de la calle',
-    desc: 'Fabrica un objeto útil en la mesa de trabajo.',
+    desc: 'Fabrique un objeto útil en la mesa de trabajo.',
     target: 1,
     icon: 'hammer',
     reward: { dinero: 2500, xp: 35, animo: 10 }
@@ -70,7 +70,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'noche',
     title: 'Pasar la noche',
-    desc: 'Descansa en el cambuche, el hogar de paso, una residencia o una banca.',
+    desc: 'Descanse en el cambuche, el hogar de paso, una residencia o una banca.',
     target: 1,
     icon: 'tent',
     reward: { dinero: 2500, xp: 30, animo: 20 }
@@ -78,7 +78,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'bicicleta',
     title: 'Bici de ida y vuelta',
-    desc: 'Alquila una bicicleta pública por $1.000 y devuélvela a la misma estación. No cuentan las robadas.',
+    desc: 'Alquile una bicicleta pública por $1.000 y devuélvala a la misma estación. No cuentan las robadas.',
     target: 1,
     icon: 'pin',
     daily: true,
@@ -232,10 +232,10 @@ export class DailyMissionSystem {
 
     if (typeof window !== 'undefined') {
       const rewardText = reward.dinero ? ` +${cop(reward.dinero)}` : '';
-      const xpText = reward.xp ? ` +${reward.xp} XP` : '';
+      const animoText = reward.animo ? ` +${reward.animo} ánimo` : '';
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
-          text: `¡Misión cumplida: ${mission.title}! Recompensa:${rewardText}${xpText}`,
+          text: `¡Misión cumplida: ${mission.title}! Recompensa:${rewardText}${animoText}`,
           type: 'rare'
         }
       }));
@@ -274,7 +274,7 @@ export class DailyMissionSystem {
     const pending = this.missions.find(m => !m.completed);
     if (pending) {
       const prog = pending.target > 1 ? ` (${pending.progress}/${pending.target})` : '';
-      return `MISIÓN: ${pending.title.toUpperCase()}${prog} · ${cop(pending.reward.dinero)}`;
+      return `MISIÓN: ${pending.title.toUpperCase()}${prog} - ${cop(pending.reward.dinero)}`;
     }
     return 'MISIONES DEL DÍA COMPLETADAS';
   }

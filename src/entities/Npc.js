@@ -904,7 +904,7 @@ export class Npc {
     if (this._noseTimer > 0) this._noseTimer -= dt;
     if (this._noseCooldown > 0) this._noseCooldown -= dt;
     else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange
-      && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance)) {
+      && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance) && this.person?.nariz !== false) {
       this._noseTimer = 2 + Math.random() * 2;
       this._noseCooldown = this._noseTimer + 6 + Math.random() * 8;
       // Con mal olor, el peatón huye corriendo de la peste
